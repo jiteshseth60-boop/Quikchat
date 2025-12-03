@@ -6,7 +6,20 @@
   <title>QuikChat — Global</title>
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body><div class="overlay" id="startOverlay">
+  <div class="popup">
+    <h2>Welcome to QuikChat</h2>
+    <input type="text" id="nameInput" placeholder="Enter your name">
+    
+    <select id="genderInput">
+      <option value="">Select Gender</option>
+      <option value="Male">Male</option>
+      <option value="Female">Female</option>
+    </select>
+
+    <button onclick="startApp()">Start</button>
+  </div>
+</div>
   <div class="app">
     <header class="topbar">
       <h1>QuikChat</h1>
