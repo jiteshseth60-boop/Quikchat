@@ -1,109 +1,205 @@
-// ======================= QuikChat Global Server ==========================
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const path = require("path");
+// public/script.js
+const socket = io();
+let localStream = null;
+let pc = null;
+let partnerId = null;
+let isMuted = false;
+let videoEnabled = true;
+let currentRoom = null;
+let isPrivate = false;
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
+const constraints = { audio: true, video: { width: 640, height: 480 } };
 
-app.use(express.static(path.join(__dirname, "public")));
+const localVideo = document.getElementById('localVideo');
+const remoteVideo = document.getElementById('remoteVideo');
+const findBtn = document.getElementById('findBtn');
+const nextBtn = document.getElementById('nextBtn');
+const disconnectBtn = document.getElementById('disconnectBtn');
+const muteBtn = document.getElementById('muteBtn');
+const videoBtn = document.getElementById('videoBtn');
+const statusSpan = document.getElementById('status');
 
-app.get("/ping", (req, res) => res.send("OK"));
+const createPrivateBtn = document.getElementById("createPrivateRoom");
+const joinPrivateBtn = document.getElementById("joinPrivateRoom");
+const roomInput = document.getElementById("roomInput");
+const reportBtn = document.getElementById("reportBtn");
 
-// --------- Matching Queue ----------
-let publicQueue = [];
-let privateRooms = {}; 
+function logStatus(t){
+  statusSpan.textContent = t;
+}
 
-io.on("connection", (socket) => {
-  console.log("Connected:", socket.id);
-
-  // Join public chat queue
-  socket.on("joinQueue", () => {
-    if (!publicQueue.includes(socket)) publicQueue.push(socket);
-    tryPair();
-  });
-
-  // Leave public queue
-  socket.on("leaveQueue", () => {
-    publicQueue = publicQueue.filter(s => s.id !== socket.id);
-  });
-
-  // --------------- Private room create ---------------
-  socket.on("createPrivateRoom", () => {
-    const roomId = "room_" + Date.now();
-    privateRooms[roomId] = { owner: socket.id, users: [socket.id] };
-    socket.join(roomId);
-    socket.emit("privateRoomCreated", { roomId });
-    console.log("Private room created:", roomId);
-  });
-
-  // Join private room with ID
-  socket.on("joinPrivateRoom", ({ roomId }) => {
-    if (privateRooms[roomId] && privateRooms[roomId].users.length < 2) {
-      privateRooms[roomId].users.push(socket.id);
-      socket.join(roomId);
-      const [a, b] = privateRooms[roomId].users;
-      io.to(a).emit("paired", { partner: b });
-      io.to(b).emit("paired", { partner: a });
-    } else {
-      socket.emit("privateRoomFull");
-    }
-  });
-
-  // --------------- WebRTC Signaling ---------------
-  socket.on("signal", (data) => {
-    if (!data || !data.to) return;
-    io.to(data.to).emit("signal", {
-      from: socket.id,
-      type: data.type,
-      payload: data.payload
-    });
-  });
-
-  // Skip / Next partner in public mode
-  socket.on("next", () => {
-    publicQueue = publicQueue.filter(s => s.id !== socket.id);
-    publicQueue.push(socket);
-    tryPair();
-  });
-
-  // ---- Report (nudity / abuse) ----
-  socket.on("reportUser", ({ target }) => {
-    console.log("Report received for:", target);
-    io.to(target).emit("warned");
-  });
-
-  // ----------- Disconnect -----------
-  socket.on("disconnect", () => {
-    publicQueue = publicQueue.filter(s => s.id !== socket.id);
-
-    // notify partner
-    io.emit("peer-disconnected", { id: socket.id });
-
-    console.log("Disconnected:", socket.id);
-  });
-});
-
-// -------- Pairing Logic ----------
-function tryPair() {
-  while (publicQueue.length >= 2) {
-    const a = publicQueue.shift();
-    const b = publicQueue.shift();
-    a.emit("paired", { partner: b.id });
-    b.emit("paired", { partner: a.id });
-    console.log("Paired:", a.id, "<-->", b.id);
+async function startLocalStream(){
+  if (localStream) return localStream;
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia(constraints);
+    localVideo.srcObject = localStream;
+    return localStream;
+  } catch (err) {
+    alert('Camera/Mic access required. Enable from browser settings.');
+    throw err;
   }
 }
 
-// ----------------- Start Server ----------------------
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () =>
-  console.log(`🔥 QuikChat Global running on port ${PORT}`)
-);
+function createPeerConnection() {
+  const config = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' }
+    ]
+  };
+  pc = new RTCPeerConnection(config);
+
+  if (localStream) {
+    for (const t of localStream.getTracks()) pc.addTrack(t, localStream);
+  }
+
+  pc.ontrack = (e) => remoteVideo.srcObject = e.streams[0];
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate && partnerId) {
+      socket.emit('signal', { to: partnerId, type: 'ice', payload: event.candidate });
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    const s = pc.connectionState || pc.iceConnectionState;
+    logStatus("Connection: " + s);
+    if (["disconnected","failed","closed"].includes(s)) {
+      nextBtn.disabled = false;
+      disconnectBtn.disabled = true;
+    }
+  };
+
+  return pc;
+}
+
+// PUBLIC RANDOM MATCH
+findBtn.onclick = async () => {
+  isPrivate = false;
+  currentRoom = null;
+  try {
+    await startLocalStream();
+    socket.emit('joinQueue');
+    logStatus("Searching...");
+    findBtn.disabled = true;
+  } catch {}
+};
+
+nextBtn.onclick = () => {
+  hangup();
+  socket.emit('next');
+  logStatus("Searching next...");
+};
+
+disconnectBtn.onclick = () => {
+  socket.emit('leaveQueue');
+  hangup();
+  resetUI();
+  logStatus("Idle");
+};
+
+// PRIVATE ROOM ---->
+createPrivateBtn.onclick = async () => {
+  await startLocalStream();
+  const roomID = Math.random().toString(36).substring(2, 8).toUpperCase();
+  roomInput.value = roomID;
+  socket.emit("createRoom", roomID);
+  isPrivate = true;
+  currentRoom = roomID;
+  logStatus("Room Created: " + roomID + " Share with friend");
+};
+
+joinPrivateBtn.onclick = async () => {
+  await startLocalStream();
+  const roomID = roomInput.value.trim();
+  if (!roomID) return alert("Enter Room ID");
+  socket.emit("joinRoom", roomID);
+  isPrivate = true;
+  currentRoom = roomID;
+  logStatus("Joining Room: " + roomID + "...");
+};
+
+// REPORT USER
+reportBtn.onclick = () => {
+  if (!partnerId) return alert("No partner connected");
+  socket.emit("reportUser", partnerId);
+  alert("User Reported. Our AI moderation will review.");
+};
+
+// CONTROLS
+muteBtn.onclick = () => {
+  if (!localStream) return;
+  isMuted = !isMuted;
+  localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
+  muteBtn.textContent = isMuted ? "Unmute" : "Mute";
+};
+
+videoBtn.onclick = () => {
+  if (!localStream) return;
+  videoEnabled = !videoEnabled;
+  localStream.getVideoTracks().forEach(t => t.enabled = videoEnabled);
+  videoBtn.textContent = videoEnabled ? "Video Off" : "Video On";
+};
+
+function resetUI() {
+  findBtn.disabled = false;
+  nextBtn.disabled = true;
+  disconnectBtn.disabled = true;
+  muteBtn.disabled = true;
+  videoBtn.disabled = true;
+  remoteVideo.srcObject = null;
+  partnerId = null;
+}
+
+function hangup() {
+  if (pc) pc.close();
+  pc = null;
+}
+
+// PAIRING FOR BOTH RANDOM + PRIVATE
+socket.on('paired', async (data) => {
+  partnerId = data.partner;
+  logStatus("Connected: " + partnerId);
+
+  nextBtn.disabled = false;
+  disconnectBtn.disabled = false;
+  muteBtn.disabled = false;
+  videoBtn.disabled = false;
+
+  await startLocalStream();
+  createPeerConnection();
+
+  const makeOffer = socket.id < partnerId;
+  if (makeOffer) {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit("signal", { to: partnerId, type: "offer", payload: offer });
+  }
+});
+
+// SIGNALS
+socket.on("signal", async (msg) => {
+  if (!pc) createPeerConnection();
+  if (msg.type === "offer") {
+    partnerId = msg.from;
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit("signal", { to: partnerId, type: "answer", payload: answer });
+  } else if (msg.type === "answer") {
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
+  } else if (msg.type === "ice") {
+    try { await pc.addIceCandidate(new RTCIceCandidate(msg.payload)); } catch {}
+  }
+});
+
+// DISCONNECT
+socket.on("peer-disconnected", (data) => {
+  if (data.id === partnerId) {
+    logStatus("Partner left");
+    hangup();
+    resetUI();
+  }
+});
+
+resetUI();
+logStatus("Idle");
