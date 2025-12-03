@@ -1,109 +1,66 @@
-// server.js
+/* server.js - QuikChat Global Server
+ * Signaling + Firestore + Storage prep
+ */
+
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const admin = require("firebase-admin");
 const path = require("path");
 
+// Firebase Admin
+const serviceAccount = JSON.parse(process.env.FIREBASE_ADMIN_KEY);
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
+const db = admin.firestore();
+
+// Express + Socket
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+  cors: { origin: "*" }
+});
 
 app.use(express.static(path.join(__dirname, "public")));
 
-// Simple in-memory matchmaking + private rooms
-let queue = [];            // array of socket.id
-let partners = {};         // partners[socketId] = partnerSocketId
-let privateSessions = {};  // privateSessions[roomId] = {a, b, startedAt}
+// Random match pool
+let waitingUsers = [];
 
+// Socket
 io.on("connection", (socket) => {
-  console.log("connect", socket.id);
+  console.log("User connected", socket.id);
 
-  socket.on("find", () => {
-    if (queue.length > 0) {
-      const partnerId = queue.shift();
-      if (partnerId === socket.id) return;
-      partners[socket.id] = partnerId;
-      partners[partnerId] = socket.id;
-      io.to(socket.id).emit("matched", { partner: partnerId });
-      io.to(partnerId).emit("matched", { partner: socket.id });
-      console.log("paired", socket.id, partnerId);
+  socket.on("find-partner", () => {
+    if (waitingUsers.length > 0) {
+      const partnerId = waitingUsers.shift();
+      io.to(socket.id).emit("partner-found", partnerId);
+      io.to(partnerId).emit("partner-found", socket.id);
     } else {
-      queue.push(socket.id);
-      io.to(socket.id).emit("waiting");
+      waitingUsers.push(socket.id);
     }
   });
 
-  // leave queue
-  socket.on("leave", () => {
-    queue = queue.filter(id => id !== socket.id);
+  socket.on("offer", (data) => io.to(data.to).emit("offer", data));
+  socket.on("answer", (data) => io.to(data.to).emit("answer", data));
+  socket.on("ice-candidate", (data) => io.to(data.to).emit("ice-candidate", data));
+
+  socket.on("send-message", ({ to, msg }) => {
+    io.to(to).emit("receive-message", { msg, from: socket.id });
   });
 
-  // generic signal relay (offer/answer/ice)
-  socket.on("signal", (data) => {
-    // data: { to, payload }
-    if (data && data.to) io.to(data.to).emit("signal", { from: socket.id, payload: data.payload });
+  socket.on("private-room", ({ to }) => {
+    io.to(to).emit("private-request", { from: socket.id });
   });
 
-  // chat message relay
-  socket.on("chat", (msg) => {
-    const p = partners[socket.id];
-    if (p) io.to(p).emit("chat", { from: socket.id, text: msg });
-  });
-
-  // private room request: send request to partner
-  socket.on("private-request", (info) => {
-    const partner = partners[socket.id];
-    if (partner) {
-      // info may contain: pricePerMinute (coins)
-      io.to(partner).emit("private-request", { from: socket.id, pricePerMinute: info.pricePerMinute || 10 });
-    }
-  });
-
-  // when partner accepts private, notify both and mark private session
-  socket.on("private-accept", (data) => {
-    // data: { with: requesterId, roomId }
-    const requester = data.with;
-    const roomId = data.roomId || `${requester}_${socket.id}_${Date.now()}`;
-    privateSessions[roomId] = { a: requester, b: socket.id, startedAt: Date.now() };
-    // notify both with roomId
-    io.to(requester).emit("private-start", { roomId, partner: socket.id });
-    io.to(socket.id).emit("private-start", { roomId, partner: requester });
-  });
-
-  // when private ends
-  socket.on("private-end", (roomId) => {
-    if (privateSessions[roomId]) {
-      const s = privateSessions[roomId];
-      io.to(s.a).emit("private-ended", { roomId });
-      io.to(s.b).emit("private-ended", { roomId });
-      delete privateSessions[roomId];
-    }
-  });
-
-  // cleanup on disconnect
   socket.on("disconnect", () => {
-    console.log("disconnect", socket.id);
-    queue = queue.filter(id => id !== socket.id);
-    const p = partners[socket.id];
-    if (p) {
-      io.to(p).emit("partner-left");
-      delete partners[p];
-      delete partners[socket.id];
-    }
-
-    // remove any private sessions involving this socket
-    Object.keys(privateSessions).forEach(roomId => {
-      const s = privateSessions[roomId];
-      if (s.a === socket.id || s.b === socket.id) {
-        if (s.a && s.b) {
-          io.to(s.a).emit("private-ended", { roomId });
-          io.to(s.b).emit("private-ended", { roomId });
-        }
-        delete privateSessions[roomId];
-      }
-    });
+    waitingUsers = waitingUsers.filter(id => id !== socket.id);
+    console.log("User disconnected", socket.id);
   });
 });
 
+// PORT
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log("Server listening on", PORT));
+server.listen(PORT, () => console.log(`QuikChat Server Running on ${PORT}`));
