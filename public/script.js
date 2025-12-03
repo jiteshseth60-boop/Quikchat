@@ -1,289 +1,398 @@
-// script.js
-/* Globals */
+/* script.js
+   Final client script for QuikChat:
+   - WebRTC signaling via Socket.IO
+   - Chat bubble UI (text, image, audio)
+   - Image/audio upload to Firebase Storage + download links
+   - Private room request / accept flow
+   - Simple coin deduction using Firestore transactions
+   - Simulated rewarded-ad for +10 coins (replace with real Ad SDK later)
+   - Uses OpenRelay TURN entry for early launch (replace with paid TURN later)
+*/
+
+/* ====== CONFIG ====== */
+// ICE / TURN servers - replace TURN creds with your provider when ready
+const ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" },
+  // Free OpenRelay (early stage). Replace when you have proper credentials.
+  { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" }
+];
+
+const PRICE_PER_MIN = 10; // coins deducted per 1 minute in private room
+const AD_REWARD = 10;     // coins granted per rewarded ad
+
+/* ====== ELEMENTS ====== */
 const socket = io();
+const findBtn = document.getElementById("findBtn");
+const nextBtn = document.getElementById("nextBtn");
+const messageInput = document.getElementById("messageInput");
+const sendBtn = document.getElementById("sendBtn");
+const messagesEl = document.getElementById("messages");
+const imageBtn = document.getElementById("imageBtn");
+const imageInput = document.getElementById("imageInput");
+const musicBtn = document.getElementById("musicBtn");
+const musicInput = document.getElementById("musicInput");
+const privateBtn = document.getElementById("privateBtn");
+const coinValueEl = document.getElementById("coinValue");
+const adPopup = document.getElementById("adPopup");
+const watchAdBtn = document.getElementById("watchAdBtn");
+const localVideo = document.getElementById("localVideo");
+const remoteVideo = document.getElementById("remoteVideo");
+
+/* ====== STATE ====== */
 let localStream = null;
 let pc = null;
 let partnerId = null;
 let inPrivate = false;
 let privateRoomId = null;
-let privateInterval = null;
-const PRICE_PER_MIN = 10; // 10 coins = 1 minute
-
-// ICE servers - add OpenRelay or Xirsys credentials if you have
-const iceServers = [
-  { urls: "stun:stun.l.google.com:19302" },
-  // Example OpenRelay (works for small launch). Replace if you have credentials.
-  { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" }
-];
-
-/* UI refs */
-const findBtn = document.getElementById('findBtn');
-const nextBtn = document.getElementById('nextBtn');
-const msgInput = document.getElementById('msgInput');
-const sendBtn = document.getElementById('sendBtn');
-const messages = document.getElementById('chatBox');
-const localVideo = document.getElementById('localVideo');
-const remoteVideo = document.getElementById('remoteVideo');
-const coinCountEl = document.getElementById('coinCount');
-const imgInput = document.getElementById('imgInput');
-const audioInput = document.getElementById('audioInput');
-const privateBtn = document.getElementById('privateBtn');
-
+let privateTimerInterval = null;
 let user = { uid: null, coins: 0 };
 
-/* Firebase / Auth */
-(async function initAuth(){
+/* ====== FIREBASE: already initialized in index.html (compat mode) ====== */
+const auth = firebase.auth();
+const db = firebase.firestore();
+const storage = firebase.storage();
+
+/* ====== AUTH: anonymous sign-in & user doc setup ====== */
+(async function initAuth() {
   try {
-    const res = await firebase.auth().signInAnonymously();
+    const res = await auth.signInAnonymously();
     user.uid = res.user.uid;
-    // create user doc if not exists
-    const userDoc = db.collection('users').doc(user.uid);
-    const snap = await userDoc.get();
+    const userRef = db.collection("users").doc(user.uid);
+    const snap = await userRef.get();
     if (!snap.exists) {
-      await userDoc.set({ coins: 50, createdAt: Date.now() }); // seed 50 coins for testing
+      // Seed small coins for testing
+      await userRef.set({ coins: 50, createdAt: Date.now() });
     }
-    const updated = await userDoc.get();
-    user.coins = updated.data().coins || 0;
-    coinCountEl.textContent = user.coins;
-    // listen to coin changes live
-    userDoc.onSnapshot(doc => {
-      const d = doc.data();
-      if (d && typeof d.coins === 'number') {
-        user.coins = d.coins;
-        coinCountEl.textContent = user.coins;
-      }
+    // Live listener for coin changes
+    userRef.onSnapshot(doc => {
+      const d = doc.data() || {};
+      user.coins = d.coins ?? 0;
+      coinValueEl.textContent = user.coins;
     });
-  } catch (e) {
-    console.error('Firebase auth failed', e);
-    alert('Firebase auth error. Check config.');
+  } catch (err) {
+    console.error("Firebase auth failed:", err);
+    alert("Firebase auth error. Check console and your firebase config.");
   }
 })();
 
-/* Helpers */
-function addBubble(text, who = 'other', extraHtml = '') {
-  const div = document.createElement('div');
-  div.className = 'bubble ' + (who === 'me' ? 'me' : 'other');
-  div.innerHTML = `<div>${text}</div>${extraHtml}`;
-  messages.appendChild(div);
-  messages.scrollTop = messages.scrollHeight;
+/* ====== UI helpers ====== */
+function addBubble(contentHtml, who = "other") {
+  const div = document.createElement("div");
+  div.className = "bubble " + (who === "me" ? "me" : "other");
+  div.innerHTML = contentHtml;
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-/* Chat events */
+function addTextBubble(text, who = "other") {
+  addBubble(`<div>${escapeHtml(text)}</div>`, who);
+}
+
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+/* ====== Chat send/receive ====== */
 sendBtn.onclick = () => {
-  const t = msgInput.value.trim();
-  if (!t) return;
-  socket.emit('chat', t);
-  addBubble(t, 'me');
-  msgInput.value = '';
+  const txt = messageInput.value.trim();
+  if (!txt) return;
+  socket.emit("sendMessage", txt);
+  addTextBubble(txt, "me");
+  messageInput.value = "";
 };
 
-/* File uploads (images/audio) */
-imgInput.onchange = async (e) => {
-  const f = e.target.files[0];
-  if (!f) return;
-  const ref = storage.ref().child(`uploads/images/${user.uid}_${Date.now()}_${f.name}`);
-  const up = await ref.put(f);
-  const url = await ref.getDownloadURL();
-  // send chat message with image url
-  socket.emit('chat', JSON.stringify({ type: 'image', url, name: f.name }));
-  addBubble('Image sent', 'me', `<div><a href="${url}" target="_blank"><img src="${url}" style="max-width:200px;border-radius:8px"></a><br><a href="${url}" download>Download</a></div>`);
-};
-
-audioInput.onchange = async (e) => {
-  const f = e.target.files[0];
-  if (!f) return;
-  const ref = storage.ref().child(`uploads/audio/${user.uid}_${Date.now()}_${f.name}`);
-  const up = await ref.put(f);
-  const url = await ref.getDownloadURL();
-  socket.emit('chat', JSON.stringify({ type: 'audio', url, name: f.name }));
-  addBubble('Audio sent', 'me', `<div><audio controls src="${url}"></audio><br><a href="${url}" download>Download</a></div>`);
-};
-
-/* Socket handlers: chat messages and matchmaking */
-socket.on('waiting', () => addBubble('Searching for partner...', 'other'));
-socket.on('matched', async (data) => {
-  partnerId = data.partner;
-  addBubble('Partner found: ' + partnerId, 'other');
-  nextBtn.disabled = false;
-  findBtn.disabled = true;
-  await startLocalStream();
-  await startPeerAsOffer();
+socket.on("receiveMessage", (txt) => {
+  addTextBubble(txt, "other");
 });
 
-socket.on('chat', (msgData) => {
-  // if JSON image/audio
+/* ====== Image Upload & Send ====== */
+imageBtn.onclick = () => imageInput.click();
+imageInput.onchange = async (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
   try {
-    const parsed = JSON.parse(msgData);
-    if (parsed.type === 'image') {
-      addBubble('Partner sent image', 'other', `<div><a href="${parsed.url}" target="_blank"><img src="${parsed.url}" style="max-width:200px;border-radius:8px"></a><br><a href="${parsed.url}" download>Download</a></div>`);
-      return;
-    } else if (parsed.type === 'audio') {
-      addBubble('Partner sent audio', 'other', `<div><audio controls src="${parsed.url}"></audio><br><a href="${parsed.url}" download>Download</a></div>`);
-      return;
-    }
-  } catch (e) {
-    // not JSON -> plain text
+    const path = `uploads/images/${user.uid}_${Date.now()}_${f.name}`;
+    const ref = storage.ref(path);
+    const up = await ref.put(f);
+    const url = await ref.getDownloadURL();
+    // tell partner
+    socket.emit("sendImage", { url, name: f.name });
+    addBubble(`<div>Image sent</div>
+      <div><a href="${url}" target="_blank"><img src="${url}" style="max-width:200px;border-radius:8px"></a><br><a href="${url}" download>Download</a></div>`, "me");
+  } catch (err) {
+    console.error("Image upload failed", err);
+    alert("Image upload failed.");
+  } finally {
+    imageInput.value = "";
   }
-  addBubble(msgData, 'other');
-});
-
-socket.on('partner-left', () => {
-  addBubble('Partner left', 'other');
-  cleanupPeer();
-  findBtn.disabled = false;
-  nextBtn.disabled = true;
-});
-
-socket.on('signal', async (data) => {
-  const payload = data.payload;
-  if (!pc) await startLocalStream().then(() => createPeerConnection());
-  if (payload.offer) {
-    await pc.setRemoteDescription(payload.offer);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    socket.emit('signal', { to: data.from, payload: { answer } });
-  } else if (payload.answer) {
-    await pc.setRemoteDescription(payload.answer);
-  } else if (payload.candidate) {
-    try { await pc.addIceCandidate(payload.candidate); } catch (e) {}
-  }
-});
-
-/* Private Room flow */
-privateBtn.onclick = () => {
-  // send private request to partner
-  if (!partnerId) { alert('No partner to request private with'); return; }
-  const price = PRICE_PER_MIN;
-  socket.emit('private-request', { pricePerMinute: price });
-  addBubble('Private room request sent', 'me');
 };
 
-socket.on('private-request', (data) => {
-  // show accept/decline
-  const from = data.from;
-  const price = data.pricePerMinute || PRICE_PER_MIN;
-  if (!confirm(`User wants a Private Room. Price: ${price} coins / min. Accept?`)) {
-    socket.emit('private-decline', { to: from });
-    return;
+socket.on("receiveImage", (obj) => {
+  if (!obj || !obj.url) return;
+  addBubble(`<div>Partner sent image</div>
+    <div><a href="${obj.url}" target="_blank"><img src="${obj.url}" style="max-width:200px;border-radius:8px"></a><br><a href="${obj.url}" download>Download</a></div>`, "other");
+});
+
+/* ====== Music/Audio Upload & Send ====== */
+musicBtn.onclick = () => musicInput.click();
+musicInput.onchange = async (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  try {
+    const path = `uploads/audio/${user.uid}_${Date.now()}_${f.name}`;
+    const ref = storage.ref(path);
+    const up = await ref.put(f);
+    const url = await ref.getDownloadURL();
+    socket.emit("sendAudio", { url, name: f.name });
+    addBubble(`<div>Music sent: ${escapeHtml(f.name)}</div>
+      <div><audio controls src="${url}"></audio><br><a href="${url}" download>Download</a></div>`, "me");
+  } catch (err) {
+    console.error("Audio upload failed", err);
+    alert("Audio upload failed.");
+  } finally {
+    musicInput.value = "";
   }
-  // Accept → send private-accept
-  const roomId = `${from}_${socket.id}_${Date.now()}`;
-  socket.emit('private-accept', { with: from, roomId });
+};
+
+socket.on("receiveAudio", (obj) => {
+  if (!obj || !obj.url) return;
+  addBubble(`<div>Partner sent audio: ${escapeHtml(obj.name || "audio")}</div>
+    <div><audio controls src="${obj.url}"></audio><br><a href="${obj.url}" download>Download</a></div>`, "other");
 });
 
-socket.on('private-start', (info) => {
-  inPrivate = true;
-  privateRoomId = info.roomId;
-  addBubble('Private Room started', 'other');
-  // start local timer to deduct coins: every 60s reduce coins by PRICE_PER_MIN
-  startPrivateCoinCountdown();
-});
+/* ====== Matchmaking ====== */
+findBtn.onclick = () => {
+  findBtn.disabled = true;
+  socket.emit("findPartner");
+  addTextBubble("Searching for partner...", "me");
+};
 
-socket.on('private-ended', () => {
-  addBubble('Private Room ended', 'other');
-  stopPrivateCoinCountdown();
-});
+nextBtn.onclick = () => {
+  // "Next" asks server to just re-find: we do leave and then find
+  socket.emit("leave"); // some server variants use this
+  cleanupPeer();
+  addTextBubble("Looking for next partner...", "me");
+  socket.emit("findPartner");
+};
 
-/* PeerConnection helpers */
-async function startLocalStream(){
+/* ====== Signaling & WebRTC ====== */
+async function startLocalStream() {
   if (localStream) return localStream;
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     localVideo.srcObject = localStream;
     return localStream;
-  } catch(e) {
-    alert('Camera/Mic required. Allow permissions.');
-    throw e;
+  } catch (err) {
+    console.error("getUserMedia error", err);
+    alert("Camera/Mic access required. Allow permissions and refresh.");
+    throw err;
   }
 }
 
 function createPeerConnection() {
-  pc = new RTCPeerConnection({ iceServers });
-  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
-  pc.ontrack = (e) => { remoteVideo.srcObject = e.streams[0]; };
-  pc.onicecandidate = (e) => {
-    if (e.candidate && partnerId) socket.emit('signal', { to: partnerId, payload: { candidate: e.candidate } });
+  pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+  // add local tracks
+  if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+  pc.ontrack = (e) => {
+    if (e.streams && e.streams[0]) remoteVideo.srcObject = e.streams[0];
   };
+
+  pc.onicecandidate = (ev) => {
+    if (ev.candidate && partnerId) {
+      socket.emit("ice", { to: partnerId, candidate: ev.candidate });
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (!pc) return;
+    const s = pc.connectionState || pc.iceConnectionState;
+    addTextBubble("PC: " + s, "other");
+    if (s === "disconnected" || s === "failed" || s === "closed") {
+      cleanupPeer();
+      findBtn.disabled = false;
+    }
+  };
+
   return pc;
 }
 
-async function startPeerAsOffer() {
+/* Server tells us partnerFound (server side naming from server.js) */
+socket.on("partnerFound", async (id) => {
+  partnerId = id;
+  addTextBubble("Partner found: " + partnerId, "other");
+  nextBtn.disabled = false;
+  findBtn.disabled = true;
+
+  await startLocalStream();
   createPeerConnection();
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  socket.emit('signal', { to: partnerId, payload: { offer } });
-}
 
-function cleanupPeer() {
-  if (pc) try { pc.close(); } catch(e) {}
-  pc = null;
-  partnerId = null;
-  remoteVideo.srcObject = null;
-}
+  // decide who creates offer deterministically to avoid collision:
+  const makeOffer = socket.id < partnerId;
+  if (makeOffer) {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit("offer", { to: partnerId, offer });
+  } else {
+    addTextBubble("Waiting for offer...", "other");
+  }
+});
 
-/* Next button */
-nextBtn.onclick = () => {
-  socket.emit('leave');
+/* Incoming signaling events relayed by server */
+socket.on("offer", async (data) => {
+  if (!pc) {
+    await startLocalStream();
+    createPeerConnection();
+  }
+  await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  socket.emit("answer", { to: data.from, answer });
+});
+
+socket.on("answer", async (data) => {
+  if (pc && data.answer) {
+    await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+  }
+});
+
+socket.on("ice", async (data) => {
+  if (pc && data.candidate) {
+    try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch (e) {}
+  }
+});
+
+/* Cleanup on partner disconnect */
+socket.on("partnerDisconnected", () => {
+  addTextBubble("Partner disconnected", "other");
   cleanupPeer();
   findBtn.disabled = false;
   nextBtn.disabled = true;
-  addBubble('Searching next...', 'me');
-  socket.emit('find');
+});
+
+/* ====== Private Room Flow ====== */
+privateBtn.onclick = () => {
+  if (!partnerId) return alert("No partner connected.");
+  socket.emit("privateRequest"); // server will forward to partner
+  addTextBubble("Private request sent", "me");
 };
 
-/* Private coin countdown (client side) - NOTE: for production, do server-side transactions */
-function startPrivateCoinCountdown() {
-  // every minute deduct PRICE_PER_MIN coins from user's doc
-  if (privateInterval) clearInterval(privateInterval);
-  privateInterval = setInterval(async () => {
-    const userRef = db.collection('users').doc(user.uid);
-    await db.runTransaction(async (tx) => {
-      const doc = await tx.get(userRef);
-      if (!doc.exists) throw new Error('User doc missing');
-      let coins = doc.data().coins || 0;
-      coins = coins - PRICE_PER_MIN;
-      if (coins < 0) {
-        // stop private, notify partner
-        socket.emit('private-end', privateRoomId);
-        stopPrivateCoinCountdown();
-        alert('Coins finished. Watch an ad to continue or buy coins.');
-        return;
-      }
-      tx.update(userRef, { coins });
-    });
-  }, 60000); // every minute
+socket.on("privateRequest", (data) => {
+  // show confirm popup: Accept private room?
+  // We keep it simple: use window.confirm for mobile compatibility.
+  const accept = confirm("Partner requested Private Room (10 coins/min). Accept?");
+  if (accept) {
+    socket.emit("privateAccept"); // notify requester
+  } else {
+    // nothing else necessary; server can handle decline if implemented
+    addTextBubble("Private declined", "me");
+  }
+});
+
+socket.on("privateAccept", (data) => {
+  // server notifies both with privateAccept - we start private session client-side
+  inPrivate = true;
+  privateRoomId = `private_${Date.now()}_${socket.id}_${partnerId}`;
+  addTextBubble("Private room started", "other");
+  // start coin deduction timer (client-side). For production, do server-side.
+  startPrivateCoinMeter();
+});
+
+/* Private timer logic (client-side) */
+function startPrivateCoinMeter() {
+  stopPrivateCoinMeter();
+  privateTimerInterval = setInterval(async () => {
+    try {
+      const userRef = db.collection("users").doc(user.uid);
+      await db.runTransaction(async (tx) => {
+        const doc = await tx.get(userRef);
+        if (!doc.exists) throw new Error("User doc missing");
+        const coins = (doc.data().coins || 0) - PRICE_PER_MIN;
+        if (coins < 0) {
+          // stop and notify
+          socket.emit("privateEnd", { roomId: privateRoomId });
+          stopPrivateCoinMeter();
+          alert("Coins finished. Watch an ad to continue or buy coins.");
+          showAdPopup();
+          return;
+        }
+        tx.update(userRef, { coins });
+      });
+    } catch (err) {
+      console.error("Coin deduction error", err);
+    }
+  }, 60 * 1000); // every 60 seconds
 }
 
-function stopPrivateCoinCountdown() {
-  if (privateInterval) clearInterval(privateInterval);
-  privateInterval = null;
+function stopPrivateCoinMeter() {
+  if (privateTimerInterval) clearInterval(privateTimerInterval);
+  privateTimerInterval = null;
   inPrivate = false;
   privateRoomId = null;
 }
 
-/* Simulated Rewarded Ad: In production integrate AdMob rewarded ads or other provider */
-async function showRewardedAdAndGrant() {
-  // Simulate ad watch time
-  addBubble('Watching ad... +10 coins after 5s', 'other');
-  await new Promise(r => setTimeout(r, 5000));
-  // grant 10 coins
-  const userRef = db.collection('users').doc(user.uid);
-  await db.runTransaction(async (tx) => {
-    const doc = await tx.get(userRef);
-    const coins = (doc.data().coins || 0) + 10;
-    tx.update(userRef, { coins });
-  });
-  addBubble('You received +10 coins', 'me');
-}
-
-/* UI: double-click chat bubble for download if link exists (handled in addBubble via anchor tags) */
-/* Expose ad watcher on coin button (for quick testing) */
-coinCountEl.addEventListener('click', () => {
-  if (confirm('Watch an ad for +10 coins? (simulated)')) showRewardedAdAndGrant();
+/* server may notify end */
+socket.on("privateEnd", () => {
+  addTextBubble("Private ended by partner", "other");
+  stopPrivateCoinMeter();
 });
 
-/* Start/Stop initial find on page */
-findBtn.onclick = () => {
-  findBtn.disabled = true;
-  socket.emit('find');
+/* ====== Ad reward popup & simulated ad ====== */
+function showAdPopup() {
+  adPopup.classList.remove("hidden");
+}
+watchAdBtn.onclick = async () => {
+  adPopup.classList.add("hidden");
+  await simulateAdAndGrant();
 };
+
+async function simulateAdAndGrant() {
+  addTextBubble("Watching ad... (+10 coins)", "other");
+  // simulate 5s "ad"
+  await new Promise(r => setTimeout(r, 5000));
+  // grant coins via transaction
+  try {
+    const userRef = db.collection("users").doc(user.uid);
+    await db.runTransaction(async (tx) => {
+      const doc = await tx.get(userRef);
+      const coins = (doc.data().coins || 0) + AD_REWARD;
+      tx.update(userRef, { coins });
+    });
+    addTextBubble("You received +10 coins", "me");
+  } catch (err) {
+    console.error("Grant coins failed", err);
+  }
+}
+
+/* Quick click on coin display to show ad popup (test) */
+coinValueEl.addEventListener("click", () => {
+  if (confirm("Watch an ad to get +10 coins?")) {
+    showAdPopup();
+  }
+});
+
+/* ====== Utility: cleanup peer and local stream ====== */
+function cleanupPeer() {
+  try { if (pc) pc.close(); } catch (e) {}
+  pc = null;
+  partnerId = null;
+  remoteVideo.srcObject = null;
+  // keep localVideo running for quick reconnect; if you want to stop:
+  // if (localStream) localStream.getTracks().forEach(t => t.stop());
+}
+
+/* ====== Init: handle basic UI state ====== */
+(function initUI() {
+  nextBtn.disabled = true;
+  adPopup.classList.add("hidden");
+})();
+
+/* ====== Safety: handle page unload ====== */
+window.addEventListener("beforeunload", () => {
+  try { socket.disconnect(); } catch (e) {}
+});
