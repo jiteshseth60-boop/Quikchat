@@ -1,205 +1,225 @@
-// public/script.js
-const socket = io();
-let localStream = null;
-let pc = null;
-let partnerId = null;
-let isMuted = false;
-let videoEnabled = true;
-let currentRoom = null;
-let isPrivate = false;
+// server.js - QuikChat final server (signaling + queue + private invite + uploads)
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const path = require("path");
+const fs = require("fs");
+const multer = require("multer");
 
-const constraints = { audio: true, video: { width: 640, height: 480 } };
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: "*" }
+});
 
-const localVideo = document.getElementById('localVideo');
-const remoteVideo = document.getElementById('remoteVideo');
-const findBtn = document.getElementById('findBtn');
-const nextBtn = document.getElementById('nextBtn');
-const disconnectBtn = document.getElementById('disconnectBtn');
-const muteBtn = document.getElementById('muteBtn');
-const videoBtn = document.getElementById('videoBtn');
-const statusSpan = document.getElementById('status');
+// Ensure uploads folder exists
+const UPLOAD_DIR = path.join(__dirname, "public", "uploads");
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-const createPrivateBtn = document.getElementById("createPrivateRoom");
-const joinPrivateBtn = document.getElementById("joinPrivateRoom");
-const roomInput = document.getElementById("roomInput");
-const reportBtn = document.getElementById("reportBtn");
+// Static serve (public + uploads)
+app.use(express.static(path.join(__dirname, "public")));
+app.use("/uploads", express.static(UPLOAD_DIR));
 
-function logStatus(t){
-  statusSpan.textContent = t;
-}
+// Simple health route
+app.get("/ping", (req, res) => res.send("OK"));
 
-async function startLocalStream(){
-  if (localStream) return localStream;
-  try {
-    localStream = await navigator.mediaDevices.getUserMedia(constraints);
-    localVideo.srcObject = localStream;
-    return localStream;
-  } catch (err) {
-    alert('Camera/Mic access required. Enable from browser settings.');
-    throw err;
-  }
-}
-
-function createPeerConnection() {
-  const config = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' }
-    ]
-  };
-  pc = new RTCPeerConnection(config);
-
-  if (localStream) {
-    for (const t of localStream.getTracks()) pc.addTrack(t, localStream);
-  }
-
-  pc.ontrack = (e) => remoteVideo.srcObject = e.streams[0];
-
-  pc.onicecandidate = (event) => {
-    if (event.candidate && partnerId) {
-      socket.emit('signal', { to: partnerId, type: 'ice', payload: event.candidate });
+// Multer setup for file uploads (images/audio)
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      const name = path.basename(file.originalname, ext).replace(/\s+/g, "_");
+      cb(null, `${Date.now()}_${name}${ext}`);
     }
-  };
+  }),
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB limit
+  fileFilter: (req, file, cb) => {
+    // Allow images and audio (jpg/jpeg/png/gif/mp3/m4a/wav)
+    const allowed = /jpeg|jpg|png|gif|mp3|m4a|wav|ogg/;
+    const mimetype = allowed.test((file.mimetype || "").toLowerCase());
+    const ext = allowed.test((path.extname(file.originalname) || "").toLowerCase());
+    if (mimetype || ext) cb(null, true);
+    else cb(new Error("File type not allowed"), false);
+  }
+});
 
-  pc.onconnectionstatechange = () => {
-    const s = pc.connectionState || pc.iceConnectionState;
-    logStatus("Connection: " + s);
-    if (["disconnected","failed","closed"].includes(s)) {
-      nextBtn.disabled = false;
-      disconnectBtn.disabled = true;
+// Upload endpoint — returns public URL
+app.post("/upload", upload.single("file"), (req, res) => {
+  if (!req.file) return res.status(400).json({ ok: false, error: "No file" });
+  const publicUrl = `/uploads/${req.file.filename}`;
+  return res.json({ ok: true, url: publicUrl, name: req.file.originalname });
+});
+
+// -------------------- Socket logic --------------------
+/*
+ Protocol (socket events):
+ - joinQueue               -> user enters public queue
+ - leaveQueue              -> remove from queue
+ - invitePrivate -> { to } -> send invite to a partner
+ - acceptInvite -> { from } -> the invited user accepts (server pairs them in private room)
+ - signal -> { to, type, payload } -> generic signaling relay (offer/answer/ice)
+ - chat-message -> { to, text } -> send text to partner (or room)
+ - file-message -> { to, url, name, mime } -> notify partner of uploaded file
+ - reportUser -> { target } -> report user (server warns)
+ - next / disconnect handled
+*/
+
+let publicQueue = [];            // sockets in public queue
+const pendingInvites = {};       // inviteId -> { from, to }
+const userToSocket = {};         // map socket.id -> socket (optional convenience)
+const privateRooms = {};         // roomId -> { users: [id,id], owner }
+
+io.on("connection", (socket) => {
+  console.log("socket connected:", socket.id);
+  userToSocket[socket.id] = socket;
+
+  // ---------- Queue ----------
+  socket.on("joinQueue", () => {
+    if (!publicQueue.includes(socket.id)) {
+      publicQueue.push(socket.id);
+      socket.emit("queueJoined");
+      tryPair(); // attempt immediate pairing
     }
-  };
+  });
 
-  return pc;
-}
+  socket.on("leaveQueue", () => {
+    publicQueue = publicQueue.filter(id => id !== socket.id);
+    socket.emit("queueLeft");
+  });
 
-// PUBLIC RANDOM MATCH
-findBtn.onclick = async () => {
-  isPrivate = false;
-  currentRoom = null;
-  try {
-    await startLocalStream();
-    socket.emit('joinQueue');
-    logStatus("Searching...");
-    findBtn.disabled = true;
-  } catch {}
-};
+  socket.on("next", () => {
+    publicQueue = publicQueue.filter(id => id !== socket.id);
+    publicQueue.push(socket.id);
+    socket.emit("nextQueued");
+    tryPair();
+  });
 
-nextBtn.onclick = () => {
-  hangup();
-  socket.emit('next');
-  logStatus("Searching next...");
-};
+  // ---------- Invite to private ----------
+  // client sends: socket.emit('invitePrivate', { to: partnerSocketId });
+  socket.on("invitePrivate", ({ to }) => {
+    if (!to || !io.sockets.sockets.get(to)) {
+      return socket.emit("inviteFailed", { reason: "User not online" });
+    }
+    // send invite
+    const inviteId = `inv_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+    pendingInvites[inviteId] = { from: socket.id, to };
+    io.to(to).emit("privateInvite", { inviteId, from: socket.id });
+    socket.emit("inviteSent", { inviteId, to });
+  });
 
-disconnectBtn.onclick = () => {
-  socket.emit('leaveQueue');
-  hangup();
-  resetUI();
-  logStatus("Idle");
-};
+  // invited user accepts: socket.emit('acceptInvite', { inviteId });
+  socket.on("acceptInvite", ({ inviteId }) => {
+    const invite = pendingInvites[inviteId];
+    if (!invite) return socket.emit("inviteFailed", { reason: "Invite expired" });
 
-// PRIVATE ROOM ---->
-createPrivateBtn.onclick = async () => {
-  await startLocalStream();
-  const roomID = Math.random().toString(36).substring(2, 8).toUpperCase();
-  roomInput.value = roomID;
-  socket.emit("createRoom", roomID);
-  isPrivate = true;
-  currentRoom = roomID;
-  logStatus("Room Created: " + roomID + " Share with friend");
-};
+    const a = invite.from;
+    const b = invite.to;
+    // new private room id
+    const roomId = `priv_${Date.now()}_${Math.random().toString(36, 4)}`;
+    privateRooms[roomId] = { users: [a, b], owner: a };
 
-joinPrivateBtn.onclick = async () => {
-  await startLocalStream();
-  const roomID = roomInput.value.trim();
-  if (!roomID) return alert("Enter Room ID");
-  socket.emit("joinRoom", roomID);
-  isPrivate = true;
-  currentRoom = roomID;
-  logStatus("Joining Room: " + roomID + "...");
-};
+    // make both join socket.io room
+    io.sockets.sockets.get(a)?.join(roomId);
+    io.sockets.sockets.get(b)?.join(roomId);
 
-// REPORT USER
-reportBtn.onclick = () => {
-  if (!partnerId) return alert("No partner connected");
-  socket.emit("reportUser", partnerId);
-  alert("User Reported. Our AI moderation will review.");
-};
+    // notify both with paired info and room id
+    io.to(a).emit("pairedPrivate", { partner: b, roomId });
+    io.to(b).emit("pairedPrivate", { partner: a, roomId });
 
-// CONTROLS
-muteBtn.onclick = () => {
-  if (!localStream) return;
-  isMuted = !isMuted;
-  localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
-  muteBtn.textContent = isMuted ? "Unmute" : "Mute";
-};
+    // cleanup invite
+    delete pendingInvites[inviteId];
+  });
 
-videoBtn.onclick = () => {
-  if (!localStream) return;
-  videoEnabled = !videoEnabled;
-  localStream.getVideoTracks().forEach(t => t.enabled = videoEnabled);
-  videoBtn.textContent = videoEnabled ? "Video Off" : "Video On";
-};
+  socket.on("rejectInvite", ({ inviteId }) => {
+    const invite = pendingInvites[inviteId];
+    if (!invite) return;
+    const from = invite.from;
+    io.to(from).emit("inviteRejected", { inviteId, by: socket.id });
+    delete pendingInvites[inviteId];
+  });
 
-function resetUI() {
-  findBtn.disabled = false;
-  nextBtn.disabled = true;
-  disconnectBtn.disabled = true;
-  muteBtn.disabled = true;
-  videoBtn.disabled = true;
-  remoteVideo.srcObject = null;
-  partnerId = null;
-}
+  // ---------- Signaling relay ----------
+  socket.on("signal", (data) => {
+    // data: { to, type, payload }
+    if (!data || !data.to) return;
+    io.to(data.to).emit("signal", {
+      from: socket.id,
+      type: data.type,
+      payload: data.payload
+    });
+  });
 
-function hangup() {
-  if (pc) pc.close();
-  pc = null;
-}
+  // ---------- Chat messaging ----------
+  // client: socket.emit('chat-message', { to, text })
+  socket.on("chat-message", ({ to, text }) => {
+    if (!to) return;
+    io.to(to).emit("chat-message", { from: socket.id, text });
+  });
 
-// PAIRING FOR BOTH RANDOM + PRIVATE
-socket.on('paired', async (data) => {
-  partnerId = data.partner;
-  logStatus("Connected: " + partnerId);
+  // ---------- File message relay (after upload) ----------
+  // client uploads /upload then emits file-message with url and to
+  socket.on("file-message", ({ to, url, name, mime }) => {
+    if (!to || !url) return;
+    io.to(to).emit("file-message", { from: socket.id, url, name, mime });
+  });
 
-  nextBtn.disabled = false;
-  disconnectBtn.disabled = false;
-  muteBtn.disabled = false;
-  videoBtn.disabled = false;
+  // ---------- Report user ----------
+  socket.on("reportUser", ({ target }) => {
+    if (!target) return;
+    // Basic warn relay — server-side moderation system can be implemented later
+    io.to(target).emit("warned", { by: socket.id });
+    // Log server-side (for admin review)
+    console.log(`Report: ${socket.id} reported ${target}`);
+  });
 
-  await startLocalStream();
-  createPeerConnection();
+  // ---------- Disconnect ----------
+  socket.on("disconnect", () => {
+    console.log("disconnect:", socket.id);
+    publicQueue = publicQueue.filter(id => id !== socket.id);
 
-  const makeOffer = socket.id < partnerId;
-  if (makeOffer) {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    socket.emit("signal", { to: partnerId, type: "offer", payload: offer });
-  }
+    // remove from invites if any side had pending
+    for (const k of Object.keys(pendingInvites)) {
+      if (pendingInvites[k].from === socket.id || pendingInvites[k].to === socket.id) {
+        delete pendingInvites[k];
+      }
+    }
+
+    // leave any private rooms
+    for (const rid of Object.keys(privateRooms)) {
+      const room = privateRooms[rid];
+      room.users = room.users.filter(u => u !== socket.id);
+      if (room.users.length === 0) delete privateRooms[rid];
+      else {
+        // notify remaining user
+        io.to(room.users[0]).emit("partnerDisconnected", { id: socket.id, roomId: rid });
+      }
+    }
+
+    delete userToSocket[socket.id];
+  });
+
 });
 
-// SIGNALS
-socket.on("signal", async (msg) => {
-  if (!pc) createPeerConnection();
-  if (msg.type === "offer") {
-    partnerId = msg.from;
-    await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    socket.emit("signal", { to: partnerId, type: "answer", payload: answer });
-  } else if (msg.type === "answer") {
-    await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
-  } else if (msg.type === "ice") {
-    try { await pc.addIceCandidate(new RTCIceCandidate(msg.payload)); } catch {}
+// ---------------- pairing helper ----------------
+function tryPair() {
+  while (publicQueue.length >= 2) {
+    const aId = publicQueue.shift();
+    const bId = publicQueue.shift();
+    const aSock = io.sockets.sockets.get(aId);
+    const bSock = io.sockets.sockets.get(bId);
+    if (!aSock || !bSock) {
+      if (aSock) publicQueue.unshift(aId);
+      if (bSock) publicQueue.unshift(bId);
+      break;
+    }
+    // Notify both; clients will start offer/answer via 'signal'
+    aSock.emit("paired", { partner: bId });
+    bSock.emit("paired", { partner: aId });
+    console.log("Paired public:", aId, "<->", bId);
   }
-});
+}
 
-// DISCONNECT
-socket.on("peer-disconnected", (data) => {
-  if (data.id === partnerId) {
-    logStatus("Partner left");
-    hangup();
-    resetUI();
-  }
-});
-
-resetUI();
-logStatus("Idle");
+// ---------------- start server ----------------
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`QuikChat server running on ${PORT}`));
