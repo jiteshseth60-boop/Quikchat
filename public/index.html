@@ -1,20 +1,41 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>QuikChat - Random Video Chat</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>QuikChat — Random 1on1</title>
+  <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <h2>🔥 QuikChat - Random 1-on-1 Video Chat</h2>
+  <div class="app">
+    <h1>QuikChat</h1>
 
-  <video id="localVideo" autoplay playsinline muted></video>
-  <video id="remoteVideo" autoplay playsinline></video>
+    <div class="videos">
+      <div class="video-box">
+        <h3>You</h3>
+        <video id="localVideo" autoplay playsinline muted></video>
+      </div>
+      <div class="video-box">
+        <h3>Partner</h3>
+        <video id="remoteVideo" autoplay playsinline></video>
+      </div>
+    </div>
 
-  <button id="findBtn">Find Partner</button>
+    <div class="controls">
+      <button id="findBtn">Find Partner</button>
+      <button id="nextBtn" disabled>Next</button>
+      <button id="disconnectBtn" disabled>Disconnect</button>
+      <button id="muteBtn" disabled>Mute</button>
+      <button id="videoBtn" disabled>Video Off</button>
+      <span id="status">Idle</span>
+    </div>
 
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script src="script.js"></script>
+    <div class="info">
+      <small>If camera permission blocked: check browser settings or use Chrome/Firefox.</small>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/script.js"></script>
 </body>
 </html>
