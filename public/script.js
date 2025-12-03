@@ -1,3 +1,12 @@
+// START BUTTON CLICK
+startBtn.onclick = () => {
+  const name = usernameInput.value.trim();
+  const gender = genderInput.value.trim();
+
+  if (!name) {
+    alert("Please enter your name");
+    return;
+  }
 
   // Show main UI
   loginBox.style.display = "none";
