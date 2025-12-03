@@ -1,4 +1,4 @@
-// server.js
+// ======================= QuikChat Global Server ==========================
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -6,104 +6,104 @@ const path = require("path");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
 app.use(express.static(path.join(__dirname, "public")));
 
-// Simple in-memory matchmaking + private rooms
-let queue = [];            // array of socket.id
-let partners = {};         // partners[socketId] = partnerSocketId
-let privateSessions = {};  // privateSessions[roomId] = {a, b, startedAt}
+app.get("/ping", (req, res) => res.send("OK"));
+
+// --------- Matching Queue ----------
+let publicQueue = [];
+let privateRooms = {}; 
 
 io.on("connection", (socket) => {
-  console.log("connect", socket.id);
+  console.log("Connected:", socket.id);
 
-  socket.on("find", () => {
-    if (queue.length > 0) {
-      const partnerId = queue.shift();
-      if (partnerId === socket.id) return;
-      partners[socket.id] = partnerId;
-      partners[partnerId] = socket.id;
-      io.to(socket.id).emit("matched", { partner: partnerId });
-      io.to(partnerId).emit("matched", { partner: socket.id });
-      console.log("paired", socket.id, partnerId);
+  // Join public chat queue
+  socket.on("joinQueue", () => {
+    if (!publicQueue.includes(socket)) publicQueue.push(socket);
+    tryPair();
+  });
+
+  // Leave public queue
+  socket.on("leaveQueue", () => {
+    publicQueue = publicQueue.filter(s => s.id !== socket.id);
+  });
+
+  // --------------- Private room create ---------------
+  socket.on("createPrivateRoom", () => {
+    const roomId = "room_" + Date.now();
+    privateRooms[roomId] = { owner: socket.id, users: [socket.id] };
+    socket.join(roomId);
+    socket.emit("privateRoomCreated", { roomId });
+    console.log("Private room created:", roomId);
+  });
+
+  // Join private room with ID
+  socket.on("joinPrivateRoom", ({ roomId }) => {
+    if (privateRooms[roomId] && privateRooms[roomId].users.length < 2) {
+      privateRooms[roomId].users.push(socket.id);
+      socket.join(roomId);
+      const [a, b] = privateRooms[roomId].users;
+      io.to(a).emit("paired", { partner: b });
+      io.to(b).emit("paired", { partner: a });
     } else {
-      queue.push(socket.id);
-      io.to(socket.id).emit("waiting");
+      socket.emit("privateRoomFull");
     }
   });
 
-  // leave queue
-  socket.on("leave", () => {
-    queue = queue.filter(id => id !== socket.id);
-  });
-
-  // generic signal relay (offer/answer/ice)
+  // --------------- WebRTC Signaling ---------------
   socket.on("signal", (data) => {
-    // data: { to, payload }
-    if (data && data.to) io.to(data.to).emit("signal", { from: socket.id, payload: data.payload });
-  });
-
-  // chat message relay
-  socket.on("chat", (msg) => {
-    const p = partners[socket.id];
-    if (p) io.to(p).emit("chat", { from: socket.id, text: msg });
-  });
-
-  // private room request: send request to partner
-  socket.on("private-request", (info) => {
-    const partner = partners[socket.id];
-    if (partner) {
-      // info may contain: pricePerMinute (coins)
-      io.to(partner).emit("private-request", { from: socket.id, pricePerMinute: info.pricePerMinute || 10 });
-    }
-  });
-
-  // when partner accepts private, notify both and mark private session
-  socket.on("private-accept", (data) => {
-    // data: { with: requesterId, roomId }
-    const requester = data.with;
-    const roomId = data.roomId || `${requester}_${socket.id}_${Date.now()}`;
-    privateSessions[roomId] = { a: requester, b: socket.id, startedAt: Date.now() };
-    // notify both with roomId
-    io.to(requester).emit("private-start", { roomId, partner: socket.id });
-    io.to(socket.id).emit("private-start", { roomId, partner: requester });
-  });
-
-  // when private ends
-  socket.on("private-end", (roomId) => {
-    if (privateSessions[roomId]) {
-      const s = privateSessions[roomId];
-      io.to(s.a).emit("private-ended", { roomId });
-      io.to(s.b).emit("private-ended", { roomId });
-      delete privateSessions[roomId];
-    }
-  });
-
-  // cleanup on disconnect
-  socket.on("disconnect", () => {
-    console.log("disconnect", socket.id);
-    queue = queue.filter(id => id !== socket.id);
-    const p = partners[socket.id];
-    if (p) {
-      io.to(p).emit("partner-left");
-      delete partners[p];
-      delete partners[socket.id];
-    }
-
-    // remove any private sessions involving this socket
-    Object.keys(privateSessions).forEach(roomId => {
-      const s = privateSessions[roomId];
-      if (s.a === socket.id || s.b === socket.id) {
-        if (s.a && s.b) {
-          io.to(s.a).emit("private-ended", { roomId });
-          io.to(s.b).emit("private-ended", { roomId });
-        }
-        delete privateSessions[roomId];
-      }
+    if (!data || !data.to) return;
+    io.to(data.to).emit("signal", {
+      from: socket.id,
+      type: data.type,
+      payload: data.payload
     });
+  });
+
+  // Skip / Next partner in public mode
+  socket.on("next", () => {
+    publicQueue = publicQueue.filter(s => s.id !== socket.id);
+    publicQueue.push(socket);
+    tryPair();
+  });
+
+  // ---- Report (nudity / abuse) ----
+  socket.on("reportUser", ({ target }) => {
+    console.log("Report received for:", target);
+    io.to(target).emit("warned");
+  });
+
+  // ----------- Disconnect -----------
+  socket.on("disconnect", () => {
+    publicQueue = publicQueue.filter(s => s.id !== socket.id);
+
+    // notify partner
+    io.emit("peer-disconnected", { id: socket.id });
+
+    console.log("Disconnected:", socket.id);
   });
 });
 
+// -------- Pairing Logic ----------
+function tryPair() {
+  while (publicQueue.length >= 2) {
+    const a = publicQueue.shift();
+    const b = publicQueue.shift();
+    a.emit("paired", { partner: b.id });
+    b.emit("paired", { partner: a.id });
+    console.log("Paired:", a.id, "<-->", b.id);
+  }
+}
+
+// ----------------- Start Server ----------------------
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log("Server listening on", PORT));
+server.listen(PORT, () =>
+  console.log(`🔥 QuikChat Global running on port ${PORT}`)
+);
