@@ -3,39 +3,77 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>QuikChat — Random 1on1</title>
-  <link rel="stylesheet" href="/style.css" />
+  <title>QuikChat — Global</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Firebase SDKs (v9 modular) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 </head>
 <body>
   <div class="app">
-    <h1>QuikChat</h1>
+    <header class="topbar">
+      <div class="brand">QuikChat</div>
+      <div class="coins">Coins: <span id="coinCount">0</span></div>
+    </header>
 
-    <div class="videos">
-      <div class="video-box">
-        <h3>You</h3>
-        <video id="localVideo" autoplay playsinline muted></video>
-      </div>
-      <div class="video-box">
-        <h3>Partner</h3>
+    <main class="main-area">
+      <div class="video-wrap">
         <video id="remoteVideo" autoplay playsinline></video>
+        <video id="localVideo" autoplay muted playsinline class="local-small"></video>
       </div>
-    </div>
 
-    <div class="controls">
-      <button id="findBtn">Find Partner</button>
-      <button id="nextBtn" disabled>Next</button>
-      <button id="disconnectBtn" disabled>Disconnect</button>
-      <button id="muteBtn" disabled>Mute</button>
-      <button id="videoBtn" disabled>Video Off</button>
-      <span id="status">Idle</span>
-    </div>
+      <div class="controls-bottom">
+        <div class="left-icons">
+          <label class="icon-btn">
+            <input id="imgInput" type="file" accept="image/*" style="display:none">
+            📷
+          </label>
 
-    <div class="info">
-      <small>If camera permission blocked: check browser settings or use Chrome/Firefox.</small>
-    </div>
+          <label class="icon-btn">
+            <input id="audioInput" type="file" accept="audio/*" style="display:none">
+            🎵
+          </label>
+
+          <button id="privateBtn" class="btn">🔒 Private</button>
+        </div>
+
+        <div class="chat-controls">
+          <input id="msgInput" placeholder="Write message..." />
+          <button id="sendBtn" class="btn">Send</button>
+        </div>
+      </div>
+
+      <div id="chatBox" class="chat-box"></div>
+
+      <div class="find-area">
+        <button id="findBtn" class="mainBtn">Find Partner</button>
+        <button id="nextBtn" class="mainBtn" disabled>Next</button>
+      </div>
+    </main>
   </div>
 
+  <script>
+  // ====== YOUR FIREBASE CONFIG ======
+  // Replace below config with your Firebase project's config object
+  // You must create a Firebase project, enable Firestore, Storage, and Authentication (Anonymous)
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_AUTH_DOMAIN",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_STORAGE_BUCKET",
+    messagingSenderId: "YOUR_MSG_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+  // ===================================
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+  const storage = firebase.storage();
+  </script>
+
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/script.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
