@@ -1,121 +1,112 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QuikChat Global</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuikChat Global</title>
 
-<style>
-  body {
-    margin: 0;
-    font-family: "Poppins", sans-serif;
-    background: linear-gradient(135deg, #0033ff, #00aaff);
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
+  <style>
+    body {
+      margin: 0;
+      font-family: "Poppins", sans-serif;
+      background: linear-gradient(135deg, #0077ff, #00c8ff);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      color: white;
+    }
 
-  #videoContainer {
-    flex: 1;
-    position: relative;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-  }
+    h2 { margin-bottom: 10px; }
 
-  video {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    background: #000;
-  }
+    video {
+      width: 45%;
+      background: black;
+      border-radius: 10px;
+      margin: 5px;
+    }
 
-  #localVideo {
-    width: 150px;
-    height: 200px;
-    position: absolute;
-    right: 15px;
-    bottom: 110px;
-    border-radius: 12px;
-    border: 2px solid #fff;
-    background: #111;
-  }
+    #controls {
+      margin-top: 15px;
+    }
 
-  #status {
-    text-align: center;
-    padding: 10px;
-    color: white;
-    font-size: 18px;
-    font-weight: bold;
-  }
+    button {
+      padding: 10px 18px;
+      margin: 5px;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      background: white;
+      color: #0077ff;
+    }
 
-  /* Floating buttons */
-  .btn-area {
-    position: fixed;
-    bottom: 10px;
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    gap: 12px;
-  }
+    button:disabled {
+      opacity: 0.5;
+    }
 
-  button {
-    padding: 12px 18px;
-    border-radius: 50px;
-    font-size: 15px;
-    border: none;
-    background: white;
-    color: black;
-    font-weight: 600;
-    cursor: pointer;
-  }
+    #chatBox {
+      width: 90%;
+      max-width: 500px;
+      margin-top: 15px;
+      display: none;
+    }
 
-  #privateBlock {
-    width: 100%;
-    padding: 8px;
-    display: flex;
-    justify-content: space-around;
-    margin-top: 5px;
-  }
+    #messages {
+      width: 100%;
+      height: 120px;
+      background: rgba(255,255,255,0.15);
+      backdrop-filter: blur(10px);
+      border-radius: 8px;
+      padding: 8px;
+      overflow-y: auto;
+      font-size: 14px;
+    }
 
-  #roomInput {
-    width: 60%;
-    padding: 8px;
-    border-radius: 8px;
-    border: none;
-  }
+    #chatInput {
+      width: 70%;
+      padding: 8px;
+      border-radius: 6px;
+      border: none;
+      margin-top: 5px;
+    }
 
-</style>
+    #sendMessageBtn {
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+  </style>
+
 </head>
 
 <body>
 
-<div id="status">Idle</div>
+  <h2>QuikChat Global 🌍</h2>
+  <span id="status">Idle</span>
 
-<div id="videoContainer">
-  <video id="remoteVideo" autoplay playsinline></video>
-  <video id="localVideo" autoplay playsinline muted></video>
-</div>
+  <div>
+    <video id="localVideo" autoplay muted playsinline></video>
+    <video id="remoteVideo" autoplay playsinline></video>
+  </div>
 
-<!-- Private Room section -->
-<div id="privateBlock">
-  <button id="createPrivateRoom">Create Room</button>
-  <input id="roomInput" placeholder="Enter Room ID">
-  <button id="joinPrivateRoom">Join</button>
-</div>
+  <div id="controls">
+    <button id="findBtn">Find Partner</button>
+    <button id="nextBtn" disabled>Next</button>
+    <button id="disconnectBtn" disabled>Disconnect</button>
+    <button id="muteBtn" disabled>Mute</button>
+    <button id="videoBtn" disabled>Video Off</button>
+    <button id="privateBtn">Private Room</button>
+  </div>
 
-<!-- Floating bottom buttons -->
-<div class="btn-area">
-  <button id="findBtn">Find</button>
-  <button id="nextBtn" disabled>Next</button>
-  <button id="disconnectBtn" disabled>End</button>
-  <button id="muteBtn" disabled>Mute</button>
-  <button id="videoBtn" disabled>Video Off</button>
-  <button id="reportBtn">🚫</button>
-</div>
+  <div id="chatBox">
+    <div id="messages"></div>
+    <input id="chatInput" placeholder="Type message…" />
+    <button id="sendMessageBtn">Send</button>
+  </div>
 
-<script src="/socket.io/socket.io.js"></script>
-<script src="script.js"></script>
-
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
