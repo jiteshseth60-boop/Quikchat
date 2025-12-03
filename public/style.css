@@ -1,24 +1,33 @@
-body {
-  text-align: center;
-  background: #000;
-  color: #fff;
-  font-family: Arial;
+/* simple clean minimal style */
+*{box-sizing:border-box}
+body{
+  font-family: "Segoe UI", Roboto, system-ui, Arial;
+  background: linear-gradient(135deg,#0f172a,#0b1224);
+  color:#e6eef8;
+  height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  margin:0;
 }
-
-video {
-  width: 45%;
-  height: 250px;
-  margin: 10px;
-  background: #444;
-  border-radius: 10px;
+.app{
+  width:980px;
+  max-width:95%;
+  padding:18px;
+  border-radius:10px;
+  background: rgba(255,255,255,0.03);
+  box-shadow: 0 6px 30px rgba(2,6,23,0.6);
 }
-
-button {
-  padding: 15px 25px;
-  margin-top: 15px;
-  border: none;
-  border-radius: 10px;
-  font-size: 18px;
-  background: #00aaff;
-  color: #fff;
+h1{margin:0 0 12px 0;text-align:center}
+.videos{display:flex;gap:12px;justify-content:space-between}
+.video-box{flex:1; background:rgba(255,255,255,0.02); padding:8px; border-radius:8px; text-align:center}
+video{width:100%; height:340px; background:#000; border-radius:6px; object-fit:cover}
+.controls{margin-top:12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+.controls button{padding:8px 12px; border-radius:8px; border:0; cursor:pointer; background:linear-gradient(90deg,#1f2937,#111827); color:#fff}
+.controls button:disabled{opacity:0.45; cursor:not-allowed}
+#status{margin-left:12px}
+.info{margin-top:8px; text-align:center; opacity:0.85}
+@media (max-width:700px){
+  .videos{flex-direction:column}
+  video{height:220px}
 }
