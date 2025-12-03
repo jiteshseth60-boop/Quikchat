@@ -1,110 +1,68 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>QuikChat Global</title>
-
-  <style>
-    body {
-      margin: 0;
-      font-family: "Poppins", sans-serif;
-      background: linear-gradient(135deg, #0077ff, #00c8ff);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      color: white;
-    }
-
-    h2 { margin-bottom: 10px; }
-
-    video {
-      width: 45%;
-      background: black;
-      border-radius: 10px;
-      margin: 5px;
-    }
-
-    #controls {
-      margin-top: 15px;
-    }
-
-    button {
-      padding: 10px 18px;
-      margin: 5px;
-      border: none;
-      border-radius: 8px;
-      font-size: 15px;
-      font-weight: 600;
-      background: white;
-      color: #0077ff;
-    }
-
-    button:disabled {
-      opacity: 0.5;
-    }
-
-    #chatBox {
-      width: 90%;
-      max-width: 500px;
-      margin-top: 15px;
-      display: none;
-    }
-
-    #messages {
-      width: 100%;
-      height: 120px;
-      background: rgba(255,255,255,0.15);
-      backdrop-filter: blur(10px);
-      border-radius: 8px;
-      padding: 8px;
-      overflow-y: auto;
-      font-size: 14px;
-    }
-
-    #chatInput {
-      width: 70%;
-      padding: 8px;
-      border-radius: 6px;
-      border: none;
-      margin-top: 5px;
-    }
-
-    #sendMessageBtn {
-      padding: 8px 12px;
-      border-radius: 6px;
-      font-size: 14px;
-    }
-  </style>
-
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>QuikChat — Global</title>
+  <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
+  <div class="app">
+    <header class="topbar">
+      <h1>QuikChat</h1>
+      <div class="actions">
+        <button id="privateBtn" title="Invite to private room">🔒 Private</button>
+        <button id="findBtn" class="primary">Find Partner</button>
+      </div>
+    </header>
 
-  <h2>QuikChat Global 🌍</h2>
-  <span id="status">Idle</span>
+    <main class="layout">
+      <section class="video-col">
+        <div class="card">
+          <div class="card-title">You</div>
+          <video id="localVideo" autoplay muted playsinline></video>
+        </div>
 
-  <div>
-    <video id="localVideo" autoplay muted playsinline></video>
-    <video id="remoteVideo" autoplay playsinline></video>
+        <div class="card">
+          <div class="card-title">Partner</div>
+          <video id="remoteVideo" autoplay playsinline></video>
+        </div>
+
+        <div class="controls">
+          <button id="nextBtn">Next</button>
+          <button id="disconnectBtn">Disconnect</button>
+          <button id="muteBtn">Mute</button>
+          <button id="videoBtn">Video Off</button>
+          <span id="status" class="status">Idle</span>
+        </div>
+      </section>
+
+      <aside class="chat-col">
+        <div class="card chat-card">
+          <div id="messages" class="messages"></div>
+
+          <div class="input-row">
+            <input id="messageInput" placeholder="Say hi..." />
+            <button id="sendBtn">Send</button>
+          </div>
+
+          <div class="file-row">
+            <label class="file-btn">📷 <input type="file" id="imageInput" accept="image/*"></label>
+            <label class="file-btn">🎵 <input type="file" id="musicInput" accept="audio/*"></label>
+            <div class="coins">Coins: <span id="coinValue">0</span></div>
+          </div>
+        </div>
+
+        <div class="card info-card">
+          <h3>Privacy & Rules</h3>
+          <p>Public chat blocks nudity (automated heuristic). Private room is private — users may share at their choice. Use responsibly.</p>
+        </div>
+      </aside>
+    </main>
   </div>
 
-  <div id="controls">
-    <button id="findBtn">Find Partner</button>
-    <button id="nextBtn" disabled>Next</button>
-    <button id="disconnectBtn" disabled>Disconnect</button>
-    <button id="muteBtn" disabled>Mute</button>
-    <button id="videoBtn" disabled>Video Off</button>
-    <button id="privateBtn">Private Room</button>
-  </div>
-
-  <div id="chatBox">
-    <div id="messages"></div>
-    <input id="chatInput" placeholder="Type message…" />
-    <button id="sendMessageBtn">Send</button>
-  </div>
+  <!-- optional firebase config; put your config in this file or set window.FIREBASE_CONFIG before load -->
+  <script src="firebase-config.js"></script>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="script.js"></script>
