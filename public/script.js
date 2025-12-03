@@ -8,13 +8,6 @@ function startApp() {
   userName = document.getElementById("username").value;
   userGender = document.getElementById("gender").value;
 }
-
-const socket = io();
-let localStream = null;
-let pc = null;
-let partnerId = null;
-let isMuted = false;
-let videoEnabled = true;
 const socket = io();
 let localStream = null;
 let pc = null;
