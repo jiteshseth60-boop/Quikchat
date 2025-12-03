@@ -1,32 +1,15 @@
-// SOCKET
-const socket = io();
 
-// GLOBALS
-let pc = null;
-let localStream = null;
-let remoteStream = null;
-let partnerId = null;
-let mediaRecorder = null;
+  // Show main UI
+  loginBox.style.display = "none";
+  mainUI.style.display = "block";
 
-// UI ELEMENTS
-const findBtn = document.getElementById("findBtn");
-const nextBtn = document.getElementById("nextBtn");
-const disconnectBtn = document.getElementById("disconnectBtn");
-const muteBtn = document.getElementById("muteBtn");
-const videoBtn = document.getElementById("videoBtn");
-const switchCamBtn = document.getElementById("switchCamBtn");
+  logStatus("Finding Partner...");
+  socket.emit("joinQueue");
 
-const chatForm = document.getElementById("chatForm");
-const chatInput = document.getElementById("chatInput");
-const messagesEl = document.getElementById("messages");
-
-const localVideo = document.getElementById("localVideo");
-const remoteVideo = document.getElementById("remoteVideo");
-
-const statusEl = document.getElementById("status");
-const coinValueEl = document.getElementById("coinValue");
-const filePicker = document.getElementById("filePicker");
-
+  findBtn.disabled = true;
+  nextBtn.disabled = true;
+  disconnectBtn.disabled = false;
+};
 // BUTTON HANDLERS
 findBtn.onclick = () => socket.emit("find");
 nextBtn.onclick = () => socket.emit("next");
