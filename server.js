@@ -34,13 +34,12 @@ io.on('connection', (socket) => {
   });
 
   socket.on('next', () => {
-    // remove if in queue then rejoin to find new partner
     queue = queue.filter(s => s.id !== socket.id);
     queue.push(socket);
     pairIfPossible();
   });
 
-  // generic signal passthrough { to, type, payload }
+  // generic signal passthrough
   socket.on('signal', (data) => {
     if (!data || !data.to) return;
     io.to(data.to).emit('signal', {
@@ -50,7 +49,7 @@ io.on('connection', (socket) => {
     });
   });
 
-  // private room request: notify opponent id
+  // Private room
   socket.on('private-request', ({ to }) => {
     if (!to) return;
     io.to(to).emit('private-request', { from: socket.id });
@@ -61,9 +60,22 @@ io.on('connection', (socket) => {
     io.to(to).emit('private-accept', { from: socket.id });
   });
 
+  // TEXT MESSAGE
   socket.on('send-message', ({ to, msg, meta }) => {
     if (!to) return;
     io.to(to).emit('receive-message', { from: socket.id, msg, meta });
+  });
+
+  // IMAGE SEND
+  socket.on('send-image', ({ to, image }) => {
+    if (!to || !image) return;
+    io.to(to).emit('receive-image', { from: socket.id, image });
+  });
+
+  // AUDIO / MUSIC SEND
+  socket.on('send-audio', ({ to, audio }) => {
+    if (!to || !audio) return;
+    io.to(to).emit('receive-audio', { from: socket.id, audio });
   });
 
   socket.on('disconnect', () => {
@@ -73,6 +85,7 @@ io.on('connection', (socket) => {
   });
 });
 
+// matching
 function pairIfPossible() {
   while (queue.length >= 2) {
     const a = queue.shift();
