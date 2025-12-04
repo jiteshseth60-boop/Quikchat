@@ -5,13 +5,13 @@
 
 /* ======== FIREBASE CONFIG (REPLACE WITH YOUR VALUES) ======== */
 const firebaseConfig = {
-  apiKey: "PUT_API_KEY",
-  authDomain: "PUT_AUTH_DOMAIN",
-  databaseURL: "https://PUT_PROJECT-id-default-rtdb.firebaseio.com",
-  projectId: "PUT_PROJECT_ID",
-  storageBucket: "PUT_BUCKET.appspot.com",
-  messagingSenderId: "PUT_MSG_ID",
-  appId: "PUT_APP_ID"
+  apiKey: "AIzaSyA48jHU548TouWUWNZF6EW2u2jiNdEhd7k",
+  authDomain: "quikchat-global-31d48.firebaseapp.com",
+  databaseURL: "https://quikchat-global-31d48-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "quikchat-global-31d48",
+  storageBucket: "quikchat-global-31d48.appspot.com",
+  messagingSenderId: "227308003822",
+  appId: "1:227308003822:web:815d471bc922fa65996eff"
 };
 /* ============================================================ */
 
