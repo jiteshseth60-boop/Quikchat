@@ -1,424 +1,166 @@
-// public/script.js - FINAL QuikChat client (copy-paste full replace)
-
-// basic socket
 const socket = io();
+let localStream, pc, partnerId, timerInterval, sec = 0;
 
-// globals
-let pc = null;
-let localStream = null;
-let remoteStream = null;
-let partnerId = null;
-let coins = 0;
-
-// UI elements (may be null if not present - guarded)
+const localVideo = document.getElementById('localVideo');
+const remoteVideo = document.getElementById('remoteVideo');
 const findBtn = document.getElementById('findBtn');
 const nextBtn = document.getElementById('nextBtn');
 const disconnectBtn = document.getElementById('disconnectBtn');
 const muteBtn = document.getElementById('muteBtn');
 const videoBtn = document.getElementById('videoBtn');
-const switchCamBtn = document.getElementById('switchCamBtn'); // optional
-const sendBtn = document.getElementById('sendBtn');
-const messageInput = document.getElementById('messageInput');
-const messagesEl = document.getElementById('messages');
-const imageInput = document.getElementById('imageInput');
-const musicInput = document.getElementById('musicInput');
-const localVideo = document.getElementById('localVideo');
-const remoteVideo = document.getElementById('remoteVideo');
-const statusEl = document.getElementById('status');
-const coinValueEl = document.getElementById('coinValue');
+const statusSpan = document.getElementById('status');
+const timer = document.getElementById('timer');
 
-// helper status log
-function logStatus(t){
-  if(statusEl) statusEl.textContent = t;
-  console.log('[status]', t);
+// CHAT UI refs
+const chatBox = document.getElementById("chatBox");
+const messages = document.getElementById("messages");
+const msgInput = document.getElementById("msgInput");
+const sendMsg = document.getElementById("sendMsg");
+const imgBtn = document.getElementById("imgBtn");
+const imgInput = document.getElementById("imgInput");
+const audioBtn = document.getElementById("audioBtn");
+const audioInput = document.getElementById("audioInput");
+
+// ---- Camera ----
+async function startCam(){
+  if (localStream) return;
+  localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+  localVideo.srcObject = localStream;
 }
 
-// UI reset
-function resetUI(){
-  partnerId = null;
-  if(nextBtn) nextBtn.disabled = true;
-  if(disconnectBtn) disconnectBtn.disabled = true;
-  if(muteBtn) muteBtn.disabled = true;
-  if(videoBtn) videoBtn.disabled = true;
-  if(switchCamBtn) switchCamBtn.disabled = true;
-  if(messagesEl) messagesEl.innerHTML = '';
+// ---- Timer ----
+function startTimer(){
+  clearInterval(timerInterval);
+  sec = 0;
+  timerInterval = setInterval(()=>{
+    sec++;
+    let m = String(Math.floor(sec/60)).padStart(2,'0');
+    let s = String(sec%60).padStart(2,'0');
+    timer.textContent = `${m}:${s}`;
+  },1000);
 }
 
-// ---------------- START / CAMERA ----------------
-async function startLocalStream(){
-  if(localStream) return localStream;
-  try{
-    localStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
-    if(localVideo) localVideo.srcObject = localStream;
-    if(switchCamBtn) switchCamBtn.disabled = false;
-    logStatus('Local camera started');
-    return localStream;
-  }catch(err){
-    console.error('getUserMedia error', err);
-    alert('Camera/Mic permission blocked. Use HTTPS and allow camera/mic.');
-    throw err;
-  }
-}
+// ---- RTC ----
+function createPC(){
+  pc = new RTCPeerConnection({ iceServers:[{urls:'stun:stun.l.google.com:19302'}] });
 
-// Called from HTML: <button onclick="startApp()">Start</button>
-function startApp(){
-  // read HTML inputs
-  const nameInput = document.getElementById('nameInput');
-  const genderInput = document.getElementById('genderInput');
-
-  const name = nameInput ? nameInput.value.trim() : 'Anonymous';
-  const gender = genderInput ? genderInput.value : '';
-
-  if(!name){
-    alert('Please enter your name');
-    return;
-  }
-
-  // hide overlay and show app container
-  const overlay = document.getElementById('startOverlay');
-  if(overlay) overlay.style.display = 'none';
-  const appEl = document.querySelector('.app');
-  if(appEl) appEl.style.display = 'block';
-
-  // set global user info
-  window.QUIKCHAT_USER = { name, gender };
-
-  logStatus('Starting camera...');
-  // start camera first, then join queue
-  startLocalStream()
-    .then(() => {
-      logStatus('Finding Partner...');
-      socket.emit('joinQueue', { name, gender });
-      if(findBtn) findBtn.disabled = true;
-      if(nextBtn) nextBtn.disabled = true;
-      if(disconnectBtn) disconnectBtn.disabled = false;
-    })
-    .catch(err=>{
-      logStatus('Camera start failed');
-    });
-}
-
-// ---------------- PeerConnection ----------------
-function createPeerConnection(){
-  if(pc) return pc;
-  const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-  pc = new RTCPeerConnection(config);
-
-  pc.onicecandidate = (e) => {
-    if(e.candidate && partnerId){
-      socket.emit('signal', { to: partnerId, type: 'ice', payload: e.candidate });
-    }
-  };
-
-  pc.ontrack = (ev) => {
-    if(!remoteStream){
-      remoteStream = new MediaStream();
-      if(remoteVideo) remoteVideo.srcObject = remoteStream;
-    }
-    try{
-      remoteStream.addTrack(ev.track);
-    }catch(e){
-      console.warn('track add failed', e);
-    }
-  };
-
-  pc.onconnectionstatechange = () => {
-    const s = pc.connectionState || pc.iceConnectionState;
-    logStatus('PC: ' + s);
-    if(s === 'disconnected' || s === 'failed' || s === 'closed'){
-      resetUI();
-    }
-  };
-
-  // add local tracks if present
-  if(localStream){
-    for(const track of localStream.getTracks()){
-      try{ pc.addTrack(track, localStream); }catch(e){}
-    }
-  }
-
+  localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  pc.ontrack = e => remoteVideo.srcObject = e.streams[0];
+  pc.onicecandidate = e => e.candidate && socket.emit("signal",{to:partnerId,type:"ice",payload:e.candidate});
   return pc;
 }
 
-function hangup(){
-  try{
-    if(pc){ pc.close(); pc = null; }
-  }catch(e){}
-  if(remoteStream){
-    remoteStream.getTracks().forEach(t=>t.stop());
-    remoteStream = null;
-  }
-  if(remoteVideo) remoteVideo.srcObject = null;
+// ---- UI Reset ----
+function reset(){
   partnerId = null;
-  logStatus('Disconnected');
-  resetUI();
+  remoteVideo.srcObject = null;
+  findBtn.disabled = false;
+  nextBtn.disabled = true;
+  disconnectBtn.disabled = true;
+  muteBtn.disabled = true;
+  videoBtn.disabled = true;
+  statusSpan.textContent = "Idle";
+  clearInterval(timerInterval);
+  timer.textContent = "00:00";
 }
 
-// ---------------- UI helpers ----------------
-function appendMessage({ fromName='Stranger', text='', me=false, type='text', dataUrl=null }){
-  if(!messagesEl) return;
-  const wrapper = document.createElement('div');
-  wrapper.className = 'message';
-
-  const bubble = document.createElement('div');
-  bubble.className = 'bubble ' + (me ? 'me' : 'other');
-
-  if(type === 'text'){
-    bubble.innerHTML = `<strong>${fromName}</strong><div style="margin-top:6px">${escapeHtml(text)}</div>`;
-  } else if(type === 'image' && dataUrl){
-    const img = document.createElement('img');
-    img.src = dataUrl;
-    img.style.maxWidth = '240px';
-    img.style.borderRadius = '8px';
-    bubble.appendChild(document.createTextNode(fromName));
-    bubble.appendChild(document.createElement('br'));
-    bubble.appendChild(img);
-  } else if(type === 'audio' && dataUrl){
-    const audio = document.createElement('audio');
-    audio.controls = true;
-    audio.src = dataUrl;
-    bubble.appendChild(document.createTextNode(fromName));
-    bubble.appendChild(document.createElement('br'));
-    bubble.appendChild(audio);
-  } else {
-    bubble.textContent = text || '[file]';
+// ---- Peer disconnect ----
+socket.on("peer-disconnected", data=>{
+  if(data.id===partnerId){
+    reset(); messages.innerHTML="";
   }
+});
 
-  wrapper.appendChild(bubble);
-  messagesEl.appendChild(wrapper);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-}
-
-// small escape to avoid HTML injection
-function escapeHtml(s){
-  return String(s).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
-}
-
-// file -> base64
-function fileToDataURL(file){
-  return new Promise((resolve,reject)=>{
-    const r = new FileReader();
-    r.onload = ()=>resolve(r.result);
-    r.onerror = reject;
-    r.readAsDataURL(file);
-  });
-}
-
-// ---------------- Event wiring (guarded) ----------------
-// Find / Next / Disconnect
-if(findBtn) findBtn.onclick = async () => {
-  try{
-    if(!localStream) await startLocalStream();
-    socket.emit('joinQueue', window.QUIKCHAT_USER || {});
-    logStatus('Searching...');
-    findBtn.disabled = true;
-  }catch(e){
-    console.error(e);
-    findBtn.disabled = false;
-  }
-};
-if(nextBtn) nextBtn.onclick = () => {
-  hangup();
-  socket.emit('next');
-  if(findBtn) findBtn.disabled = true;
-  if(nextBtn) nextBtn.disabled = true;
-  if(disconnectBtn) disconnectBtn.disabled = true;
-  logStatus('Searching next...');
-};
-if(disconnectBtn) disconnectBtn.onclick = () => {
-  socket.emit('leaveQueue');
-  hangup();
-  resetUI();
-  logStatus('Idle');
-};
-
-// Mute / Video toggle
-if(muteBtn) muteBtn.onclick = () => {
-  if(!localStream) return;
-  const enabled = localStream.getAudioTracks().some(t=>t.enabled);
-  localStream.getAudioTracks().forEach(t => t.enabled = !enabled);
-  muteBtn.textContent = enabled ? 'Unmute' : 'Mute';
-};
-if(videoBtn) videoBtn.onclick = () => {
-  if(!localStream) return;
-  const enabled = localStream.getVideoTracks().some(t=>t.enabled);
-  localStream.getVideoTracks().forEach(t => t.enabled = !enabled);
-  videoBtn.textContent = enabled ? 'Video On' : 'Video Off';
-};
-
-// switch camera (best-effort)
-if(switchCamBtn) switchCamBtn.onclick = async () => {
-  if(!localStream) return;
-  try{
-    const cam = localStream.getVideoTracks()[0];
-    const facing = cam.getSettings && cam.getSettings().facingMode === 'user' ? 'environment' : 'user';
-    const ns = await navigator.mediaDevices.getUserMedia({ video:{ facingMode: facing }, audio:true });
-    const newTrack = ns.getVideoTracks()[0];
-    localStream.removeTrack(cam);
-    localStream.addTrack(newTrack);
-    if(pc){
-      const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
-      if(sender) sender.replaceTrack(newTrack);
-    }
-  }catch(e){
-    console.warn('switch camera failed', e);
-  }
-};
-
-// chat send
-if(sendBtn && messageInput){
-  sendBtn.onclick = () => {
-    const txt = (messageInput.value || '').trim();
-    if(!txt || !partnerId) return;
-    // send as signalling msg to partner
-    socket.emit('signal', { to: partnerId, type: 'msg', payload: { text: txt, name: window.QUIKCHAT_USER && window.QUIKCHAT_USER.name } });
-    appendMessage({ fromName: window.QUIKCHAT_USER ? window.QUIKCHAT_USER.name : 'You', text: txt, me:true });
-    messageInput.value = '';
-  };
-}
-
-// file inputs
-if(imageInput){
-  imageInput.onchange = async (e) => {
-    const f = e.target.files && e.target.files[0];
-    if(!f || !partnerId) return;
-    const dataUrl = await fileToDataURL(f);
-    socket.emit('file', { to: partnerId, type: 'image', name: window.QUIKCHAT_USER && window.QUIKCHAT_USER.name, data: dataUrl });
-    appendMessage({ fromName: window.QUIKCHAT_USER ? window.QUIKCHAT_USER.name : 'You', type:'image', dataUrl, me:true });
-    e.target.value = '';
-  };
-}
-if(musicInput){
-  musicInput.onchange = async (e) => {
-    const f = e.target.files && e.target.files[0];
-    if(!f || !partnerId) return;
-    const dataUrl = await fileToDataURL(f);
-    socket.emit('file', { to: partnerId, type: 'audio', name: window.QUIKCHAT_USER && window.QUIKCHAT_USER.name, data: dataUrl });
-    appendMessage({ fromName: window.QUIKCHAT_USER ? window.QUIKCHAT_USER.name : 'You', type:'audio', dataUrl, me:true });
-    e.target.value = '';
-  };
-}
-
-// coin helper
-function addCoins(n){
-  coins += n;
-  if(coinValueEl) coinValueEl.textContent = coins;
-}
-
-// ---------------- Socket handlers ----------------
-
-// When server pairs you with partner
-socket.on('paired', async (data) => {
+// ---- Pair event ----
+socket.on("paired", async data=>{
   partnerId = data.partner;
-  logStatus('Paired: ' + partnerId);
-  if(nextBtn) nextBtn.disabled = false;
-  if(disconnectBtn) disconnectBtn.disabled = false;
-  if(muteBtn) muteBtn.disabled = false;
-  if(videoBtn) videoBtn.disabled = false;
+  statusSpan.textContent = "Paired " + partnerId;
+  nextBtn.disabled = false;
+  disconnectBtn.disabled = false;
+  muteBtn.disabled = false;
+  videoBtn.disabled = false;
+  messages.innerHTML="";
+  startTimer();
 
-  // ensure local stream ready
-  await startLocalStream();
-  createPeerConnection();
-
-  // decide who makes offer
-  const makeOffer = socket.id < partnerId;
-  if(makeOffer){
-    try{
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket.emit('signal', { to: partnerId, type: 'offer', payload: offer });
-      logStatus('Offer sent');
-    }catch(e){ console.error(e); }
-  } else {
-    logStatus('Waiting for offer...');
+  await startCam();
+  createPC();
+  if (socket.id < partnerId){
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit("signal",{to:partnerId,type:"offer",payload:offer});
   }
 });
 
-// general signalling wrapper
-socket.on('signal', async (msg) => {
-  if(!msg || !msg.type) return;
-
-  const from = msg.from || (msg.payload && msg.payload.from);
-
-  // make sure pc exists
-  if(!pc && (msg.type === 'offer' || msg.type === 'ice' || msg.type === 'answer')){
-    await startLocalStream();
-    createPeerConnection();
-  }
-
-  if(msg.type === 'offer'){
-    partnerId = from;
-    logStatus('Offer received');
-    try{
-      await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit('signal', { to: from, type: 'answer', payload: answer });
-      logStatus('Answer sent');
-    }catch(e){ console.error(e); }
-  } else if(msg.type === 'answer'){
-    logStatus('Answer received');
-    try{ await pc.setRemoteDescription(new RTCSessionDescription(msg.payload)); }catch(e){}
-  } else if(msg.type === 'ice'){
-    try{ await pc.addIceCandidate(new RTCIceCandidate(msg.payload)); }catch(e){}
-  } else if(msg.type === 'msg'){
-    // chat forwarded
-    const p = msg.payload || {};
-    appendMessage({ fromName: p.name || 'Partner', text: p.text || '' , me:false});
-  } else if(msg.type === 'file'){
-    // sometimes signaling file may be used; we handle server 'file' event below
-    console.log('signal file payload', msg.payload);
+// ---- Signalling ----
+socket.on("signal", async msg=>{
+  if (!pc) createPC();
+  if(msg.type==="offer"){
+    partnerId = msg.from;
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
+    const ans = await pc.createAnswer();
+    await pc.setLocalDescription(ans);
+    socket.emit("signal",{to:msg.from,type:"answer",payload:ans});
+  } else if(msg.type==="answer"){
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
+  } else if(msg.type==="ice"){
+    await pc.addIceCandidate(new RTCIceCandidate(msg.payload));
   }
 });
 
-// text chat event (alternative)
-socket.on('chat', (m) => {
-  if(!m) return;
-  appendMessage({ fromName: m.name || 'Stranger', text: m.text || '' });
+// ---- Controls ----
+findBtn.onclick = async () => { await startCam(); socket.emit("joinQueue"); statusSpan.textContent="Searching..."; findBtn.disabled=true; };
+nextBtn.onclick = () => { socket.emit("next"); reset(); statusSpan.textContent="Searching next..."; };
+disconnectBtn.onclick = () => { socket.emit("leaveQueue"); reset(); };
+
+// ---- Chat send ----
+sendMsg.onclick = ()=>{
+  if(!msgInput.value.trim()) return;
+  socket.emit("send-message",{to:partnerId,msg:msgInput.value});
+  addMessage(msgInput.value,true);
+  msgInput.value="";
+};
+
+socket.on("receive-message",data=>{
+  addMessage(data.msg,false);
 });
 
-// file incoming (from server forward)
-socket.on('file', (m) => {
-  if(!m || !m.payload) return;
-  const p = m.payload;
-  if(p.type === 'image' && p.data){
-    appendMessage({ fromName: p.name || 'Partner', type:'image', dataUrl: p.data, me:false });
-  } else if(p.type === 'audio' && p.data){
-    appendMessage({ fromName: p.name || 'Partner', type:'audio', dataUrl: p.data, me:false });
-  } else {
-    appendMessage({ fromName: p.name || 'Partner', text: '[file received]' });
-  }
+function addMessage(t,me){
+  const d=document.createElement("div");
+  d.className="msg"+(me?" me":"");
+  d.textContent=t;
+  messages.appendChild(d);
+  messages.scrollTop=messages.scrollHeight;
+}
+
+// ---- Image send ----
+imgBtn.onclick=()=> imgInput.click();
+imgInput.onchange=()=>{
+  const file = imgInput.files[0];
+  const reader=new FileReader();
+  reader.onload=()=> socket.emit("send-image",{to:partnerId,image:reader.result});
+  reader.readAsDataURL(file);
+};
+
+socket.on("receive-image",data=>{
+  let d=document.createElement("div");
+  d.className="msg";
+  d.innerHTML=`<img src="${data.image}" style="max-width:160px;border-radius:6px"/>`;
+  messages.appendChild(d);
+  messages.scrollTop=messages.scrollHeight;
 });
 
-// peer disconnected
-socket.on('peer-disconnected', (data) => {
-  if(!partnerId) return;
-  if(data && data.id === partnerId){
-    logStatus('Partner disconnected');
-    hangup();
-    resetUI();
-  }
+// ---- Audio ----
+audioBtn.onclick=()=> audioInput.click();
+audioInput.onchange=()=>{
+  const f = audioInput.files[0];
+  const r=new FileReader();
+  r.onload=()=> socket.emit("send-audio",{to:partnerId,audio:r.result});
+  r.readAsDataURL(f);
+};
+
+socket.on("receive-audio",data=>{
+  let d=document.createElement("div");
+  d.className="msg";
+  d.innerHTML=`<audio controls src="${data.audio}"></audio>`;
+  messages.appendChild(d);
 });
-
-// coins update
-socket.on('coins', (c) => {
-  if(coinValueEl) coinValueEl.textContent = c || 0;
-});
-
-// private invite handling
-socket.on('private-invite', (payload) => {
-  if(confirm('Private invite received. Accept?')){
-    socket.emit('private-accept', { to: payload.from, roomId: payload.roomId });
-  } else {
-    socket.emit('private-decline', { to: payload.from });
-  }
-});
-
-// UI init
-resetUI();
-logStatus('Idle');
-
-// firebase optional init
-if(window.FIREBASE_CONFIG && typeof firebase !== 'undefined'){
-  try{ firebase.initializeApp(window.FIREBASE_CONFIG); console.log('Firebase init'); }catch(e){console.warn(e);}
-                  }
