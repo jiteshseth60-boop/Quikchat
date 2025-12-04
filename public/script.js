@@ -1,4 +1,14 @@
-// public/script.js — FINAL QuikChat (Glass UI)
+// public/script.js — FINAL QuikChat (Glass UI)// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyAy0IElrucTOCS9-PaYair8fa0xZIxwJM0",
+  authDomain: "quikchat12.firebaseapp.com",
+  projectId: "quikchat12",
+  storageBucket: "quikchat12.firebasestorage.app",
+  messagingSenderId: "121839577232",
+  appId: "1:121839577232:web:589e7831fdaa9d72205015"
+};
+
+firebase.initializeApp(firebaseConfig);
 const socket = io("https://quikchat12.onrender.com", {
   transports: ["websocket"]
 });
