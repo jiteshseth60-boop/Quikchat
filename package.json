@@ -1,14 +1,12 @@
 {
-  "name": "quikchat",
+  "name": "quikchat-signaling",
   "version": "1.0.0",
-  "description": "QuikChat - Random 1on1 Video Chat (Node + Express + Socket.io + WebRTC)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
-  "author": "QuikChat",
-  "license": "MIT",
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^4.18.2",
     "socket.io": "^4.7.2"
   }
