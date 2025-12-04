@@ -1,6 +1,22 @@
 <!doctype html>
 <html lang="en">
-<head>
+<head><!-- Firebase compat scripts for old app.js support -->
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyA48jHU548TouWUWNZF6EW2u2jiNdEhd7k",
+    authDomain: "quikchat-global-31d48.firebaseapp.com",
+    databaseURL: "https://quikchat-global-31d48-default-rtdb.firebaseio.com",
+    projectId: "quikchat-global-31d48",
+    storageBucket: "quikchat-global-31d48.firebasestorage.app",
+    messagingSenderId: "227308003822",
+    appId: "1:227308003822:web:815d471bc922fa65996eff"
+  };
+  firebase.initializeApp(firebaseConfig);
+</script>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>QuikChat — Live</title>
