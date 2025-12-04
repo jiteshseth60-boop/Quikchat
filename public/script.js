@@ -1,231 +1,399 @@
-// public/script.js — QuikChat final (mobile-first)
-// Keep socket.io on same origin for Render deployment
-const socket = io(); // same origin
+// public/script.js
+const socket = io(); // same-origin recommended
 
-let localStream = null;
+// UI elements
+const findBtn = document.getElementById("findBtn");
+const nextBtn = document.getElementById("nextBtn");
+const disconnectBtn = document.getElementById("disconnectBtn");
+const muteBtn = document.getElementById("muteBtn");
+const videoBtn = document.getElementById("videoBtn");
+const switchCamBtn = document.getElementById("switchCamBtn");
+const statusTop = document.getElementById("statusTop");
+const timerDisplay = document.getElementById("timer");
+const chatBox = document.getElementById("chatBox");
+const chatInput = document.getElementById("chatInput");
+const sendChatBtn = document.getElementById("sendChat");
+const localVideo = document.getElementById("localVideo");
+const remoteVideo = document.getElementById("remoteVideo");
+const genderSelect = document.getElementById("genderSelect");
+const countrySelect = document.getElementById("countrySelect");
+const nameInput = document.getElementById("nameInput");
+const coinsVal = document.getElementById("coinsVal");
+const uploadBtn = document.getElementById("uploadBtn");
+const imageUpload = document.getElementById("imageUpload");
+const stickerBtn = document.getElementById("stickerBtn");
+const stickerInput = document.getElementById("stickerInput");
+const localSticker = document.getElementById("localSticker");
+const remoteSticker = document.getElementById("remoteSticker");
+const privateBtn = document.getElementById("privateBtn");
+const searchAnim = document.getElementById("searchAnim");
+const localNameEl = document.getElementById("localName");
+
+// state
 let pc = null;
-let partnerId = null;
-let callTimer = null;
+let localStream = null;
+let remoteStream = null;
+let timerInterval = null;
 let seconds = 0;
-let currentFacingMode = "user"; // 'user' or 'environment'
-let premium = false; // demo flag - set true to simulate premium user
+let currentCam = "user";
+let isMuted = false;
+let videoOff = false;
+let room = null;
+let coins = 500; // demo starting coins
+coinsVal.innerText = coins;
+localNameEl.innerText = `(You)`;
 
-// UI refs
-const startOverlay = document.getElementById('startOverlay');
-const startBtn = document.getElementById('startBtn');
-const genderOverlay = document.getElementById('genderOverlay');
-const genderBack = document.getElementById('genderBack');
-const genderBtns = document.querySelectorAll('.gender-btn');
+// ICE config (include TURN if you have credentials)
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" }
+    // Add TURN if/when you have it
+  ]
+};
 
-const localVideo = document.getElementById('localVideo');
-const remoteVideo = document.getElementById('remoteVideo');
-const findBtn = document.getElementById('findBtn');
-const nextBtn = document.getElementById('nextBtn');
-const disconnectBtn = document.getElementById('disconnectBtn');
-const muteBtn = document.getElementById('muteBtn');
-const videoBtn = document.getElementById('videoBtn');
-const switchCamBtn = document.getElementById('switchCamBtn');
-const privateBtn = document.getElementById('privateBtn');
+function setStatus(t){ statusTop.innerText = t; }
+function showSearchAnim(show){ searchAnim.style.display = show ? "block" : "none"; }
 
-const sendBtn = document.getElementById('sendBtn');
-const messageInput = document.getElementById('messageInput');
-const messagesEl = document.getElementById('messages');
-const imageInput = document.getElementById('imageInput');
-const musicInput = document.getElementById('musicInput');
+function startTimer(){
+  stopTimer();
+  seconds = 0;
+  timerInterval = setInterval(()=> {
+    seconds++;
+    const m = String(Math.floor(seconds/60)).padStart(2,'0');
+    const s = String(seconds%60).padStart(2,'0');
+    timerDisplay.innerText = `${m}:${s}`;
+  }, 1000);
+}
+function stopTimer(){ if (timerInterval) clearInterval(timerInterval); timerInterval = null; timerDisplay.innerText = "00:00"; }
 
-const statusEl = document.getElementById('status');
-const pairIdEl = document.getElementById('pairId');
-const timerEl = document.getElementById('timer');
-const coinValueEl = document.getElementById('coinValue');
+function addChat(txt){
+  const d=document.createElement('div');
+  d.innerText = txt;
+  d.style.margin='6px 0';
+  chatBox.appendChild(d);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
 
-const MAX_FILE_BYTES = 4_700_000;
-
-function logStatus(t){ if(statusEl) statusEl.textContent = t; console.log('[status]', t); }
-
-// --- local media
-async function startLocalStream(facing = currentFacingMode){
-  if(localStream) return localStream;
-  try{
-    localStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode: facing, width:640 }, audio:true });
-    if(localVideo) localVideo.srcObject = localStream;
+async function startLocalStream(){
+  if (localStream) return localStream;
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode: currentCam }, audio:true });
+    localVideo.srcObject = localStream;
+    applyTrackStates();
     return localStream;
-  }catch(e){
-    alert('Camera/Mic permission needed. Use HTTPS and allow permissions.');
+  } catch(e){
+    alert("Camera & mic permission required");
     throw e;
   }
 }
 
-// --- peer
-function createPeerConnection(){
-  if(pc) return pc;
-  const config = { iceServers:[{ urls:'stun:stun.l.google.com:19302' }] };
-  pc = new RTCPeerConnection(config);
-  if(localStream) localStream.getTracks().forEach(t=>pc.addTrack(t, localStream));
-  pc.ontrack = (ev)=>{ try{ remoteVideo.srcObject = ev.streams[0]; }catch(e){} };
-  pc.onicecandidate = (e)=>{ if(e.candidate && partnerId) socket.emit('signal',{ to: partnerId, type:'ice', payload: e.candidate }); };
-  pc.onconnectionstatechange = ()=>{ const s = pc.connectionState||pc.iceConnectionState; logStatus('PC:'+s); if(['disconnected','failed','closed'].includes(s)) resetUIAfterHangup(); };
+function applyTrackStates(){
+  if (!localStream) return;
+  localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
+  localStream.getVideoTracks().forEach(t => t.enabled = !videoOff);
+  muteBtn.innerText = isMuted ? "Unmute" : "Mute";
+  videoBtn.innerText = videoOff ? "Video On" : "Video Off";
+}
+
+// Create or return existing RTCPeerConnection
+function createPeerIfNeeded(){
+  if (pc) return pc;
+  pc = new RTCPeerConnection(ICE_CONFIG);
+
+  pc.onicecandidate = (ev) => {
+    if (ev.candidate) {
+      // send raw candidate object to server
+      socket.emit("candidate", ev.candidate);
+    }
+  };
+
+  pc.ontrack = (ev) => {
+    remoteStream = ev.streams && ev.streams[0] ? ev.streams[0] : null;
+    remoteVideo.srcObject = remoteStream;
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (!pc) return;
+    const s = pc.connectionState;
+    console.log("PC state", s);
+    if (s === "connected") {
+      setStatus("Connected");
+      startTimer();
+      nextBtn.disabled = false;
+      disconnectBtn.disabled = false;
+      showSearchAnim(false);
+    } else if (["disconnected","failed","closed"].includes(s)) {
+      stopTimer();
+    }
+    if (s === "closed") {
+      try { pc.close(); } catch(e){}
+      pc = null;
+    }
+  };
+
+  // attach local tracks if present (avoid duplicates)
+  if (localStream) {
+    const existing = pc.getSenders().filter(s=>s.track);
+    if (!existing.length) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  }
   return pc;
 }
 
-function hangupCleanup(){
-  try{ if(pc){ pc.close(); pc=null; } }catch(e){}
-  try{ if(remoteVideo) remoteVideo.srcObject = null; }catch(e){}
-  partnerId = null;
-  clearInterval(callTimer); seconds=0; timerEl.textContent='00:00';
+// UI handlers
+findBtn.onclick = async () => {
+  try {
+    setStatus("Searching partner...");
+    showSearchAnim(true);
+    findBtn.disabled = true;
+    nextBtn.disabled = true;
+    disconnectBtn.disabled = true;
+
+    await startLocalStream();
+
+    const opts = {
+      gender: genderSelect.value,
+      country: countrySelect.value,
+      wantPrivate: false,
+      coins,
+      name: nameInput.value || null
+    };
+
+    socket.emit("findPartner", opts);
+  } catch(e) {
+    console.error(e);
+    resetControls();
+  }
+};
+
+privateBtn.onclick = async () => {
+  if (coins < 100) { alert("Not enough coins for private call (100)."); return; }
+  const ok = confirm("Spend 100 coins to enter private match? (Both users must choose private)");
+  if (!ok) return;
+  try {
+    setStatus("Searching private partner...");
+    showSearchAnim(true);
+    findBtn.disabled = true;
+
+    await startLocalStream();
+    const opts = {
+      gender: genderSelect.value,
+      country: countrySelect.value,
+      wantPrivate: true,
+      coins,
+      name: nameInput.value || null
+    };
+    socket.emit("findPartner", opts);
+  } catch (e) { console.warn(e); resetControls(); }
+};
+
+nextBtn.onclick = () => { leaveAndFind(true); };
+disconnectBtn.onclick = () => { leaveAndFind(false); };
+muteBtn.onclick = () => { isMuted = !isMuted; applyTrackStates(); };
+videoBtn.onclick = () => { videoOff = !videoOff; applyTrackStates(); };
+
+switchCamBtn.onclick = async () => {
+  currentCam = currentCam === "user" ? "environment" : "user";
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  await startLocalStream();
+  if (pc && localStream) {
+    const sender = pc.getSenders().find(s => s.track && s.track.kind === "video");
+    const newTrack = localStream.getVideoTracks()[0];
+    if (sender && newTrack) sender.replaceTrack(newTrack).catch(()=>pc.addTrack(newTrack, localStream));
+    else localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  }
+};
+
+sendChatBtn.onclick = () => {
+  const txt = (chatInput.value || "").trim();
+  if (!txt) return;
+  addChat("You: " + txt);
+  socket.emit("chat", { text: txt, ts: Date.now() });
+  chatInput.value = "";
+};
+
+// image send
+uploadBtn.onclick = () => imageUpload.click();
+imageUpload.onchange = async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    socket.emit("image", { data: r.result, name: f.name, ts: Date.now() });
+    addChat("You sent an image");
+  };
+  r.readAsDataURL(f);
+  imageUpload.value = "";
+};
+
+// sticker send
+stickerBtn.onclick = () => stickerInput.click();
+stickerInput.onchange = (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    localSticker.src = r.result; localSticker.hidden = false;
+    socket.emit("sticker", { data: r.result, ts: Date.now() });
+  };
+  r.readAsDataURL(f);
+  stickerInput.value = "";
+};
+
+async function leaveAndFind(rematch=false){
+  try {
+    if (room) {
+      socket.emit("leave");
+      room = null;
+      if (pc) try { pc.close(); } catch(e) {}
+      pc = null;
+      remoteVideo.srcObject = null;
+      stopTimer();
+      setStatus("Disconnected");
+    }
+  } catch(e){ console.warn(e); }
+  resetControls();
+  if (rematch) setTimeout(()=> findBtn.click(), 350);
 }
 
-function resetUIAfterHangup(){
-  hangupCleanup();
+function resetControls(){
   findBtn.disabled = false;
   nextBtn.disabled = true;
   disconnectBtn.disabled = true;
-  muteBtn.disabled = true;
-  videoBtn.disabled = true;
-  switchCamBtn.disabled = true;
-  privateBtn.disabled = true;
-  pairIdEl.textContent = '';
-  logStatus('Idle');
+  showSearchAnim(false);
+  setStatus("Ready — click Find");
+  stopTimer();
+  addChat("Ready");
 }
 
-function startCallTimer(){ clearInterval(callTimer); seconds=0; timerEl.textContent='00:00'; callTimer=setInterval(()=>{ seconds++; const m=String(Math.floor(seconds/60)).padStart(2,'0'); const s=String(seconds%60).padStart(2,'0'); timerEl.textContent=`${m}:${s}`; },1000); }
+// socket handlers
+socket.on("connect", () => {
+  console.log("socket connected", socket.id);
+  resetControls();
+});
 
-// --- UI actions
-startBtn.onclick = async ()=>{
-  startOverlay.style.display = 'none';
-  genderOverlay.style.display = 'block';
-};
+socket.on("waiting", () => {
+  setStatus("Waiting for partner...");
+  showSearchAnim(true);
+});
 
-genderBack.onclick = ()=>{ genderOverlay.style.display = 'none'; startOverlay.style.display = 'block'; }
+socket.on("partnerFound", async (data) => {
+  try {
+    console.log("partnerFound", data);
+    room = data.room;
+    console.log("Room id:", room);
 
-genderBtns.forEach(btn=>{
-  btn.onclick = async ()=>{
-    const desired = btn.dataset.gender; // '' | 'Female' | 'Male' | 'Trans'
-    // premium lock
-    if(desired && desired !== '' && !premium){
-      if(!confirm('This filter is available for Premium members only. Unlock premium?')) return;
-      // in real app, open buy screen
-      return;
+    // local coin deduction demo if private requested
+    if (data.partnerMeta && data.partnerMeta.wantPrivate) {
+      if (coins >= 100) {
+        coins -= 100;
+        coinsVal.innerText = coins;
+        addChat("Private call started (100 coins spent).");
+      }
     }
-    genderOverlay.style.display = 'none';
+
     await startLocalStream();
-    // save pref and join queue
-    socket.emit('joinQueue',{ gender: desired || '' , premium });
-    logStatus('Searching...');
-    findBtn.disabled = true;
-  };
-});
+    const localPc = createPeerIfNeeded();
 
-// find/next/disconnect
-findBtn.onclick = async ()=>{
-  try{
-    findBtn.disabled = true;
-    await startLocalStream();
-    socket.emit('joinQueue',{ gender:'', premium });
-    logStatus('Searching...');
-  }catch(e){ findBtn.disabled = false; }
-};
+    // attach local tracks if not already
+    if (localStream) {
+      const senders = localPc.getSenders().filter(s=>s.track);
+      if (!senders.length) localStream.getTracks().forEach(t => localPc.addTrack(t, localStream));
+    }
 
-nextBtn.onclick = ()=>{ socket.emit('next'); resetUIAfterHangup(); logStatus('Searching next...'); }
+    if (data.initiator) {
+      setStatus("Creating offer...");
+      const offer = await localPc.createOffer();
+      await localPc.setLocalDescription(offer);
+      socket.emit("offer", { sdp: offer.sdp, type: offer.type });
+    } else {
+      setStatus("Waiting for offer...");
+    }
 
-disconnectBtn.onclick = ()=>{ socket.emit('leaveQueue'); resetUIAfterHangup(); }
-
-// audio/video toggle
-muteBtn.onclick = ()=>{ if(!localStream) return; const a=localStream.getAudioTracks(); a.forEach(t=>t.enabled = !t.enabled); muteBtn.textContent = localStream.getAudioTracks()[0].enabled ? '🔇 Mute' : 'Unmute'; }
-videoBtn.onclick = ()=>{ if(!localStream) return; const v=localStream.getVideoTracks(); v.forEach(t=>t.enabled = !t.enabled); videoBtn.textContent = v[0].enabled ? '🎥 Video Off' : 'Video On'; }
-
-// switch camera
-switchCamBtn.onclick = async ()=>{
-  if(!localStream) return;
-  try{
-    // stop old tracks
-    localStream.getTracks().forEach(t=>t.stop());
-  }catch(e){}
-  currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
-  localStream = await startLocalStream(currentFacingMode);
-  if(pc){
-    const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
-    if(sender) sender.replaceTrack(localStream.getVideoTracks()[0]);
-  }
-  if(localVideo) localVideo.srcObject = localStream;
-};
-
-// private room (placeholder)
-privateBtn.onclick = ()=>{ alert('Private room / premium feature. Implement coins/payment to enable.'); }
-
-// send message
-sendBtn.onclick = ()=>{ const txt=(messageInput.value||'').trim(); if(!txt || !partnerId) return; socket.emit('signal',{ to: partnerId, type:'msg', payload:{ text: txt, name: 'You' } }); appendMessage({ fromName:'You', text:txt, me:true }); messageInput.value=''; }
-
-function appendMessage({ fromName='Stranger', text='', me=false, type='text', dataUrl=null }){
-  if(!messagesEl) return;
-  const wrapper=document.createElement('div'); wrapper.className='bubble '+(me?'me':'other');
-  const title=document.createElement('div'); title.className='bubble-title'; title.textContent=fromName; wrapper.appendChild(title);
-  if(type==='text'){ const p=document.createElement('div'); p.textContent=text; wrapper.appendChild(p); }
-  else if(type==='image'){ const img=document.createElement('img'); img.src=dataUrl; img.style.maxWidth='200px'; wrapper.appendChild(img); }
-  else if(type==='audio'){ const a=document.createElement('audio'); a.controls=true; a.src=dataUrl; wrapper.appendChild(a); }
-  messagesEl.appendChild(wrapper); messagesEl.scrollTop = messagesEl.scrollHeight;
-}
-
-// file helpers
-function fileToDataURL(file){ return new Promise((resolve,reject)=>{ const r=new FileReader(); r.onload=()=>resolve(r.result); r.onerror=reject; r.readAsDataURL(file); }); }
-
-imageInput.onchange = async (e)=>{
-  const f = e.target.files && e.target.files[0]; if(!f || !partnerId){ e.target.value=''; return; }
-  if(f.size > MAX_FILE_BYTES){ alert('Image too large (~4.7MB)'); e.target.value=''; return; }
-  const data = await fileToDataURL(f);
-  socket.emit('signal', { to: partnerId, type: 'file', payload:{ fileType:'image', name: f.name, data } });
-  appendMessage({ fromName:'You', type:'image', dataUrl:data, me:true });
-  e.target.value='';
-}
-
-musicInput.onchange = async (e)=>{
-  const f = e.target.files && e.target.files[0]; if(!f || !partnerId){ e.target.value=''; return; }
-  if(f.size > MAX_FILE_BYTES){ alert('Audio too large (~4.7MB)'); e.target.value=''; return; }
-  const data = await fileToDataURL(f);
-  socket.emit('signal', { to: partnerId, type: 'file', payload:{ fileType:'audio', name: f.name, data } });
-  appendMessage({ fromName:'You', type:'audio', dataUrl:data, me:true });
-  e.target.value='';
-}
-
-// --- socket handlers
-socket.on('paired', async (data)=>{
-  partnerId = data.partner;
-  pairIdEl.textContent = 'Paired ' + partnerId;
-  logStatus('Paired: ' + partnerId);
-  nextBtn.disabled = false; disconnectBtn.disabled = false; muteBtn.disabled = false; videoBtn.disabled = false; switchCamBtn.disabled = false; privateBtn.disabled = false;
-  messagesEl.innerHTML = '';
-  startCallTimer();
-  await startLocalStream();
-  createPeerConnection();
-  const makeOffer = socket.id < partnerId;
-  if(makeOffer){
-    try{
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket.emit('signal',{ to: partnerId, type:'offer', payload: offer });
-      logStatus('Offer sent');
-    }catch(e){console.error(e);}
+    showSearchAnim(false);
+  } catch (e) {
+    console.warn("partnerFound error", e);
   }
 });
 
-socket.on('signal', async (msg)=>{
-  if(!msg || !msg.type) return;
-  const from = msg.from;
-  if(!pc && ['offer','answer','ice'].includes(msg.type)){ await startLocalStream(); createPeerConnection(); }
-  if(msg.type === 'offer'){
-    partnerId = from; logStatus('Offer received');
-    try{ await pc.setRemoteDescription(new RTCSessionDescription(msg.payload)); const answer = await pc.createAnswer(); await pc.setLocalDescription(answer); socket.emit('signal',{ to: from, type:'answer', payload: answer }); logStatus('Answer sent'); }catch(e){console.error(e);}
-  } else if(msg.type === 'answer'){
-    try{ await pc.setRemoteDescription(new RTCSessionDescription(msg.payload)); }catch(e){console.error(e);}
-  } else if(msg.type === 'ice'){
-    try{ await pc.addIceCandidate(new RTCIceCandidate(msg.payload)); }catch(e){console.warn(e);}
-  } else if(msg.type === 'msg'){
-    const p = msg.payload||{}; appendMessage({ fromName: p.name||'Partner', text: p.text||'', me:false });
-  } else if(msg.type === 'file'){
-    const p = msg.payload||{}; if(p.fileType==='image' && p.data) appendMessage({ fromName:'Partner', type:'image', dataUrl:p.data, me:false }); else if(p.fileType==='audio' && p.data) appendMessage({ fromName:'Partner', type:'audio', dataUrl:p.data, me:false }); else appendMessage({ fromName:'Partner', text:'[file]', me:false }); }
+socket.on("offer", async (payload) => {
+  try {
+    await startLocalStream();
+    const localPc = createPeerIfNeeded();
+    if (localStream) {
+      const senders = localPc.getSenders().filter(s=>s.track);
+      if (!senders.length) localStream.getTracks().forEach(t => localPc.addTrack(t, localStream));
+    }
+
+    // Defensive remote description handling
+    if (payload && (payload.sdp || payload.type)) {
+      await localPc.setRemoteDescription({ type: payload.type || "offer", sdp: payload.sdp });
+    } else {
+      console.warn("offer: payload missing sdp/type", payload);
+    }
+
+    const answer = await localPc.createAnswer();
+    await localPc.setLocalDescription(answer);
+    socket.emit("answer", { sdp: answer.sdp, type: answer.type });
+    setStatus("Answer sent — connecting...");
+  } catch (e) {
+    console.warn("offer handler", e);
+  }
 });
 
-// peer disconnected
-socket.on('peer-disconnected',(d)=>{ if(d && d.id === partnerId){ logStatus('Partner disconnected'); resetUIAfterHangup(); } });
+socket.on("answer", async (payload) => {
+  try {
+    if (!pc) return;
+    if (payload && (payload.sdp || payload.type)) {
+      await pc.setRemoteDescription({ type: payload.type || "answer", sdp: payload.sdp });
+    } else {
+      console.warn("answer: payload missing sdp/type", payload);
+    }
+    setStatus("Connected (answered)");
+  } catch (e) { console.warn(e); }
+});
 
-// init UI
-resetUIAfterHangup(); logStatus('Idle');
+socket.on("candidate", async (payload) => {
+  try {
+    if (!pc) return;
+    // server may forward {candidate: <obj>} or raw candidate object
+    const cand = (payload && payload.candidate) ? payload.candidate : payload;
+    if (!cand) return;
+    await pc.addIceCandidate(new RTCIceCandidate(cand));
+  } catch(e){ console.warn("candidate error", e); }
+});
+
+socket.on("chat", (m) => addChat("Partner: " + (m.text || "message")));
+socket.on("image", (img) => {
+  addChat("Partner sent an image:");
+  const im = document.createElement('img');
+  im.src = img.data;
+  im.style.maxWidth = "220px";
+  im.style.display = "block";
+  im.style.margin = "8px 0";
+  chatBox.appendChild(im); chatBox.scrollTop = chatBox.scrollHeight;
+});
+socket.on("sticker", (st) => {
+  remoteSticker.src = st.data; remoteSticker.hidden = false;
+});
+
+socket.on("peer-left", () => {
+  addChat("Partner left.");
+  // close pc to cleanup and allow quick rematch
+  if (pc) try { pc.close(); } catch(e){}
+  pc = null;
+  remoteVideo.srcObject = null;
+  leaveAndFind(false);
+});
+
+socket.on("disconnect", () => {
+  setStatus("Signaling disconnected");
+  resetControls();
+});
+
+window.addEventListener("beforeunload", () => {
+  try { socket.emit("leave"); } catch(e){}
+  if (localStream) localStream.getTracks().forEach(t=>t.stop());
+});
+
+resetControls();
+console.log("Client ready");
