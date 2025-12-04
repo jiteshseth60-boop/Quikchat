@@ -1,5 +1,5 @@
 // public/script.js — FINAL QuikChat (Glass UI)
-const socket = io("https://quikchat12.onrender.com", {
+const socket = io("https://quikchat.onrender.com", {
   transports: ["websocket"]
 });
 let localStream = null;
