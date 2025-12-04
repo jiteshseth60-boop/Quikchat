@@ -2,38 +2,44 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>QuikChat — Random 1on1</title>
+  <meta name="description" content="QuikChat — free random 1-on-1 video chat. Meet new people instantly." />
   <link rel="stylesheet" href="/style.css" />
-  <link rel="stylesheet" href="/chat.css" />
 </head>
 <body>
   <div class="overlay" id="startOverlay">
     <div class="popup">
-      <h2>Welcome to QuikChat</h2>
-      <input id="nameInput" placeholder="Enter name (optional)" />
-      <div style="display:flex;gap:8px;margin-top:8px;">
-        <select id="genderInput">
-          <option value="">Any gender</option>
-          <option value="Male">Male</option>
-          <option value="Female">Female</option>
-        </select>
-        <select id="countryInput">
-          <option value="">Any country</option>
-          <option>India</option>
-          <option>Philippines</option>
-          <option>USA</option>
-          <option>UK</option>
-        </select>
+      <div class="logo-row">
+        <div class="logo-bubble">💬</div>
+        <h1>QuikChat</h1>
       </div>
-      <button id="startBtn">Start</button>
+      <p class="lead">Meet someone new instantly — no signup</p>
+      <button id="startBtn" class="primary-btn">Start</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="genderOverlay" style="display:none;">
+    <div class="popup">
+      <h2>Select Gender Preference</h2>
+      <div class="gender-row">
+        <button class="gender-btn" data-gender="">👤 Any</button>
+        <button class="gender-btn premium" data-gender="Female">👩 Female</button>
+        <button class="gender-btn premium" data-gender="Male">👨 Male</button>
+        <button class="gender-btn premium" data-gender="Trans">⚧ Trans</button>
+      </div>
+      <div style="margin-top:12px;font-size:13px;color:#777">Female/Male/Trans filters require <strong>Premium</strong>. (Demo: premium=false)</div>
+      <button id="genderBack" class="secondary-btn">Back</button>
     </div>
   </div>
 
   <div class="app">
     <header class="topbar">
-      <h1>QuikChat</h1>
-      <div class="status-row">
+      <div class="left">
+        <div class="logo-bubble small">💬</div>
+        <div class="app-title">QuikChat</div>
+      </div>
+      <div class="right-status">
         <span id="status">Idle</span>
         <span id="pairId" class="pair-id"></span>
       </div>
@@ -52,15 +58,20 @@
       </section>
 
       <aside class="controls-panel">
-        <div class="controls">
-          <button id="findBtn">Find Partner</button>
-          <button id="nextBtn" disabled>Next</button>
-          <button id="disconnectBtn" disabled>Disconnect</button>
-          <button id="muteBtn" disabled>Mute</button>
-          <button id="videoBtn" disabled>Video Off</button>
+        <div class="controls top-controls">
+          <button id="findBtn" class="primary-small">Find Partner</button>
+          <button id="nextBtn" disabled class="secondary-small">Next</button>
+          <button id="disconnectBtn" disabled class="danger-small">Disconnect</button>
         </div>
 
         <div class="timer-row">⏱ <span id="timer">00:00</span></div>
+
+        <div class="controls mid-controls">
+          <button id="muteBtn" disabled>🔇 Mute</button>
+          <button id="videoBtn" disabled>🎥 Video Off</button>
+          <button id="switchCamBtn" disabled>🔄 Switch</button>
+          <button id="privateBtn" disabled>🔒 Private</button>
+        </div>
 
         <div class="chat-actions">
           <div id="messages" class="messages"></div>
@@ -71,16 +82,16 @@
           <div class="file-row">
             <label class="file-btn">📷<input id="imageInput" type="file" accept="image/*" hidden></label>
             <label class="file-btn">🎵<input id="musicInput" type="file" accept="audio/*" hidden></label>
-            <div class="coins">Coins: <span id="coinValue">0</span></div>
+            <div class="coins">Coins: <span id="coinValue">0</span> <button id="buyBtn" class="small">Buy</button></div>
           </div>
         </div>
       </aside>
     </main>
 
-    <footer class="footer-note">Use Chrome/Edge on Android for best camera permissions. HTTPS required for mobile browsers.</footer>
+    <footer class="footer-note">Tip: Use Chrome on Android for best camera permissions. Render-hosted server recommended.</footer>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/script.js"></script>
 </body>
-</html>
+                                                                      </html>
