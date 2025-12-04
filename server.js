@@ -6,7 +6,16 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+// 🔥 Important CORS fix for Firebase + Render
+const io = new Server(server, {
+  cors: {
+    origin: [
+      "https://quikchat12.web.app",
+      "https://quikchat12.onrender.com"
+    ],
+    methods: ["GET", "POST"]
+  }
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/ping', (req, res) => res.send('OK'));
