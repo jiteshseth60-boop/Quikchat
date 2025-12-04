@@ -1,70 +1,86 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>QuikChat 1-on-1</title>
-  <link rel="stylesheet" href="/style.css">
-  <link rel="stylesheet" href="/chat.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>QuikChat — Random 1on1</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/chat.css" />
 </head>
 <body>
-
-<div class="app">
-  <h1>QuikChat</h1>
-
-  <div class="filters">
-    <select id="gender">
-      <option value="">Any gender</option>
-      <option value="male">Male</option>
-      <option value="female">Female</option>
-    </select>
-
-    <select id="country">
-      <option value="">Any country</option>
-      <option>India</option>
-      <option>Philippines</option>
-      <option>USA</option>
-      <option>UK</option>
-      <option>Pakistan</option>
-    </select>
-  </div>
-
-  <div class="videos">
-    <div>
-      <h3>You</h3>
-      <video id="localVideo" autoplay playsinline muted></video>
-    </div>
-    <div>
-      <h3>Partner</h3>
-      <video id="remoteVideo" autoplay playsinline></video>
+  <div class="overlay" id="startOverlay">
+    <div class="popup">
+      <h2>Welcome to QuikChat</h2>
+      <input id="nameInput" placeholder="Enter name (optional)" />
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <select id="genderInput">
+          <option value="">Any gender</option>
+          <option value="Male">Male</option>
+          <option value="Female">Female</option>
+        </select>
+        <select id="countryInput">
+          <option value="">Any country</option>
+          <option>India</option>
+          <option>Philippines</option>
+          <option>USA</option>
+          <option>UK</option>
+        </select>
+      </div>
+      <button id="startBtn">Start</button>
     </div>
   </div>
 
-  <div class="controls">
-    <button id="findBtn">Find</button>
-    <button id="nextBtn" disabled>Next</button>
-    <button id="disconnectBtn" disabled>Disconnect</button>
-    <button id="muteBtn" disabled>Mute</button>
-    <button id="videoBtn" disabled>Video Off</button>
-    ⏱ <span id="timer">00:00</span>
-    <span id="status">Idle</span>
+  <div class="app">
+    <header class="topbar">
+      <h1>QuikChat</h1>
+      <div class="status-row">
+        <span id="status">Idle</span>
+        <span id="pairId" class="pair-id"></span>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      <section class="videos">
+        <div class="video-card">
+          <div class="card-title">You</div>
+          <video id="localVideo" autoplay playsinline muted></video>
+        </div>
+        <div class="video-card">
+          <div class="card-title">Partner</div>
+          <video id="remoteVideo" autoplay playsinline></video>
+        </div>
+      </section>
+
+      <aside class="controls-panel">
+        <div class="controls">
+          <button id="findBtn">Find Partner</button>
+          <button id="nextBtn" disabled>Next</button>
+          <button id="disconnectBtn" disabled>Disconnect</button>
+          <button id="muteBtn" disabled>Mute</button>
+          <button id="videoBtn" disabled>Video Off</button>
+        </div>
+
+        <div class="timer-row">⏱ <span id="timer">00:00</span></div>
+
+        <div class="chat-actions">
+          <div id="messages" class="messages"></div>
+          <div class="msg-row">
+            <input id="messageInput" placeholder="Type message..." />
+            <button id="sendBtn">Send</button>
+          </div>
+          <div class="file-row">
+            <label class="file-btn">📷<input id="imageInput" type="file" accept="image/*" hidden></label>
+            <label class="file-btn">🎵<input id="musicInput" type="file" accept="audio/*" hidden></label>
+            <div class="coins">Coins: <span id="coinValue">0</span></div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="footer-note">Use Chrome/Edge on Android for best camera permissions. HTTPS required for mobile browsers.</footer>
   </div>
-</div>
 
-<div class="chat-box" id="chatBox">
-  <div id="messages"></div>
-
-  <div class="chat-input">
-    <input id="msgInput" placeholder="Type message...">
-    <button id="sendMsg">Send</button>
-    <input type="file" id="imgInput" accept="image/*" style="display:none">
-    <button id="imgBtn">📷</button>
-    <input type="file" id="audioInput" accept="audio/*" style="display:none">
-    <button id="audioBtn">🎵</button>
-  </div>
-</div>
-
-<script src="/socket.io/socket.io.js"></script>
-<script src="/script.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/script.js"></script>
 </body>
 </html>
