@@ -2,96 +2,115 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>QuikChat — Random 1on1</title>
-  <meta name="description" content="QuikChat — free random 1-on-1 video chat. Meet new people instantly." />
-  <link rel="stylesheet" href="/style.css" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>QuikChat — Live</title>
+
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="overlay" id="startOverlay">
-    <div class="popup">
-      <div class="logo-row">
-        <div class="logo-bubble">💬</div>
-        <h1>QuikChat</h1>
-      </div>
-      <p class="lead">Meet someone new instantly — no signup</p>
-      <button id="startBtn" class="primary-btn">Start</button>
-    </div>
-  </div>
+  <div id="app">
 
-  <div class="overlay" id="genderOverlay" style="display:none;">
-    <div class="popup">
-      <h2>Select Gender Preference</h2>
-      <div class="gender-row">
-        <button class="gender-btn" data-gender="">👤 Any</button>
-        <button class="gender-btn premium" data-gender="Female">👩 Female</button>
-        <button class="gender-btn premium" data-gender="Male">👨 Male</button>
-        <button class="gender-btn premium" data-gender="Trans">⚧ Trans</button>
-      </div>
-      <div style="margin-top:12px;font-size:13px;color:#777">Female/Male/Trans filters require <strong>Premium</strong>. (Demo: premium=false)</div>
-      <button id="genderBack" class="secondary-btn">Back</button>
-    </div>
-  </div>
+    <header>
+      <h1>QuikChat</h1>
+      <div id="statusTop">Ready</div>
+      <div class="tools">
 
-  <div class="app">
-    <header class="topbar">
-      <div class="left">
-        <div class="logo-bubble small">💬</div>
-        <div class="app-title">QuikChat</div>
-      </div>
-      <div class="right-status">
-        <span id="status">Idle</span>
-        <span id="pairId" class="pair-id"></span>
+        <div>
+          <label>Gender</label>
+          <select id="genderSelect">
+            <option value="any">Any</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+          </select>
+        </div>
+
+        <div>
+          <label>Country</label>
+          <select id="countrySelect">
+            <option value="any">Any</option>
+            <option value="india">India</option>
+            <option value="pakistan">Pakistan</option>
+            <option value="bangladesh">Bangladesh</option>
+            <option value="nepal">Nepal</option>
+            <option value="usa">USA</option>
+            <option value="uk">UK</option>
+          </select>
+        </div>
+
+        <div>
+          <label>Name</label>
+          <input id="nameInput" type="text" placeholder="Your name (optional)" />
+        </div>
+
+        <div>
+          <label>Coins</label>
+          <span id="coinsVal">0</span>
+        </div>
+
       </div>
     </header>
 
-    <main class="main-grid">
-      <section class="videos">
-        <div class="video-card">
-          <div class="card-title">You</div>
-          <video id="localVideo" autoplay playsinline muted></video>
-        </div>
-        <div class="video-card">
-          <div class="card-title">Partner</div>
+    <section class="video-wrap">
+
+      <div class="video-card">
+        <div class="label">Remote</div>
+        <div class="video-box">
           <video id="remoteVideo" autoplay playsinline></video>
+          <img id="remoteSticker" class="sticker" hidden />
         </div>
-      </section>
+      </div>
 
-      <aside class="controls-panel">
-        <div class="controls top-controls">
-          <button id="findBtn" class="primary-small">Find Partner</button>
-          <button id="nextBtn" disabled class="secondary-small">Next</button>
-          <button id="disconnectBtn" disabled class="danger-small">Disconnect</button>
+      <div class="video-card">
+        <div class="label">You <span id="localName"></span></div>
+        <div class="video-box">
+          <video id="localVideo" autoplay muted playsinline></video>
+          <img id="localSticker" class="sticker" hidden />
         </div>
+      </div>
 
-        <div class="timer-row">⏱ <span id="timer">00:00</span></div>
+    </section>
 
-        <div class="controls mid-controls">
-          <button id="muteBtn" disabled>🔇 Mute</button>
-          <button id="videoBtn" disabled>🎥 Video Off</button>
-          <button id="switchCamBtn" disabled>🔄 Switch</button>
-          <button id="privateBtn" disabled>🔒 Private</button>
+    <div class="controls">
+      <button id="findBtn" class="primary">Find</button>
+      <button id="nextBtn" disabled>Next</button>
+      <button id="disconnectBtn" disabled>End</button>
+
+      <div class="center-controls">
+        <button id="muteBtn">Mute</button>
+        <button id="videoBtn">Video Off</button>
+        <button id="switchCamBtn">Switch Cam</button>
+        <div id="timer">00:00</div>
+      </div>
+    </div>
+
+    <div class="extras">
+      <label class="file-label">
+        <input id="imageUpload" type="file" accept="image/*" hidden />
+        <button id="uploadBtn">Send Image</button>
+      </label>
+
+      <input id="stickerInput" type="file" accept="image/*" hidden />
+      <button id="stickerBtn">Send Sticker</button>
+      <button id="privateBtn">Private Call (100 coins)</button>
+    </div>
+
+    <div class="row" style="display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-top:12px;">
+      <div class="chat">
+        <div id="chatBox"></div>
+        <div class="chat-controls">
+          <input id="chatInput" type="text" placeholder="Say hi..." />
+          <button id="sendChat">Send</button>
         </div>
+      </div>
+    </div>
 
-        <div class="chat-actions">
-          <div id="messages" class="messages"></div>
-          <div class="msg-row">
-            <input id="messageInput" placeholder="Type message..." />
-            <button id="sendBtn">Send</button>
-          </div>
-          <div class="file-row">
-            <label class="file-btn">📷<input id="imageInput" type="file" accept="image/*" hidden></label>
-            <label class="file-btn">🎵<input id="musicInput" type="file" accept="audio/*" hidden></label>
-            <div class="coins">Coins: <span id="coinValue">0</span> <button id="buyBtn" class="small">Buy</button></div>
-          </div>
-        </div>
-      </aside>
-    </main>
+    <div id="searchAnim" style="display:none">Searching…</div>
 
-    <footer class="footer-note">Tip: Use Chrome on Android for best camera permissions. Render-hosted server recommended.</footer>
   </div>
 
+  <!-- SOCKET & SCRIPT -->
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/script.js"></script>
+  <script src="script.js"></script>
+
 </body>
-                                                                      </html>
+</html>
