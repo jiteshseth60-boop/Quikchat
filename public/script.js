@@ -1,5 +1,7 @@
 // public/script.js
-const socket = io(); // same-origin recommended
+const socket = io("https://quikchat12.onrender.com", {
+  transports: ["websocket"]
+});
 
 // UI elements
 const findBtn = document.getElementById("findBtn");
