@@ -1,5 +1,5 @@
 {
-  "name": "quikchat-global",
+  "name": "quikchat",
   "version": "1.0.0",
   "description": "QuikChat - Random 1on1 Video Chat (Node + Express + Socket.io + WebRTC)",
   "main": "server.js",
@@ -13,4 +13,3 @@
     "socket.io": "^4.7.2"
   }
 }
-
