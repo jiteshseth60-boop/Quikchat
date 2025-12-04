@@ -1,436 +1,507 @@
-<!DOCTYPE html>
+// public/script.js - FINAL QuikChat client (copy-paste full replace)
+
+// basic socket
+const socket = io();
+
+// globals
+let pc = null;
+let localStream = null;
+let remoteStream = null;
+let partnerId = null;
+let coins = 0;
+
+// UI elements (may be null if not present - guarded)
+const findBtn = document.getElementById('findBtn');
+const nextBtn = document.getElementById('nextBtn');
+const disconnectBtn = document.getElementById('disconnectBtn');
+const muteBtn = document.getElementById('muteBtn');
+const videoBtn = document.getElementById('videoBtn');
+const switchCamBtn = document.getElementById('switchCamBtn'); // optional
+const sendBtn = document.getElementById('sendBtn');
+const messageInput = document.getElementById('messageInput');
+const messagesEl = document.getElementById('messages');
+const imageInput = document.getElementById('imageInput');
+const musicInput = document.getElementById('musicInput');
+const localVideo = document.getElementById('localVideo');
+const remoteVideo = document.getElementById('remoteVideo');
+const statusEl = document.getElementById('status');
+const coinValueEl = document.getElementById('coinValue');
+
+// helper status log
+function logStatus(t){
+  if(statusEl) statusEl.textContent = t;
+  console.log('[status]', t);
+}
+
+// UI reset
+function resetUI(){
+  partnerId = null;
+  if(nextBtn) nextBtn.disabled = true;
+  if(disconnectBtn) disconnectBtn.disabled = true;
+  if(muteBtn) muteBtn.disabled = true;
+  if(videoBtn) videoBtn.disabled = true;
+  if(switchCamBtn) switchCamBtn.disabled = true;
+  if(messagesEl) messagesEl.innerHTML = '';
+}
+
+// ---------------- START / CAMERA ----------------
+async function startLocalStream(){
+  if(localStream) return localStream;
+  try{
+    localStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
+    if(localVideo) localVideo.srcObject = localStream;
+    if(switchCamBtn) switchCamBtn.disabled = false;
+    logStatus('Local camera started');
+    return localStream;
+  }catch(err){
+    console.error('getUserMedia error', err);
+    alert('Camera/Mic permission blocked. Use HTTPS and allow camera/mic.');
+    throw err;
+  }
+}
+
+// Called from HTML: <button onclick="startApp()">Start</button>
+function startApp(){
+  // read HTML inputs
+  const nameInput = document.getElementById('nameInput');
+  const genderInput = document.getElementById('genderInput');
+
+  const name = nameInput ? nameInput.value.trim() : 'Anonymous';
+  const gender = genderInput ? genderInput.value : '';
+
+  if(!name){
+    alert('Please enter your name');
+    return;
+  }
+
+  // hide overlay and show app container
+  const overlay = document.getElementById('startOverlay');
+  if(overlay) overlay.style.display = 'none';
+  const appEl = document.querySelector('.app');
+  if(appEl) appEl.style.display = 'block';
+
+  // set global user info
+  window.QUIKCHAT_USER = { name, gender };
+
+  logStatus('Starting camera...');
+  // start camera first, then join queue
+  startLocalStream()
+    .then(() => {
+      logStatus('Finding Partner...');
+      socket.emit('joinQueue', { name, gender });
+      if(findBtn) findBtn.disabled = true;
+      if(nextBtn) nextBtn.disabled = true;
+      if(disconnectBtn) disconnectBtn.disabled = false;
+    })
+    .catch(err=>{
+      logStatus('Camera start failed');
+    });
+}
+
+// ---------------- PeerConnection ----------------
+function createPeerConnection(){
+  if(pc) return pc;
+  const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+  pc = new RTCPeerConnection(config);
+
+  pc.onicecandidate = (e) => {
+    if(e.candidate && partnerId){
+      socket.emit('signal', { to: partnerId, type: 'ice', payload: e.candidate });
+    }
+  };
+
+  pc.ontrack = (ev) => {
+    if(!remoteStream){
+      remoteStream = new MediaStream();
+      if(remoteVideo) remoteVideo.srcObject = remoteStream;
+    }
+    try{
+      remoteStream.addTrack(ev.track);
+    }catch(e){
+      console.warn('track add failed', e);
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    const s = pc.connectionState || pc.iceConnectionState;
+    logStatus('PC: ' + s);
+    if(s === 'disconnected' || s === 'failed' || s === 'closed'){
+      resetUI();
+    }
+  };
+
+  // add local tracks if present
+  if(localStream){
+    for(const track of localStream.getTracks()){
+      try{ pc.addTrack(track, localStream); }catch(e){}
+    }
+  }
+
+  return pc;
+}
+
+function hangup(){
+  try{
+    if(pc){ pc.close(); pc = null; }
+  }catch(e){}
+  if(remoteStream){
+    remoteStream.getTracks().forEach(t=>t.stop());
+    remoteStream = null;
+  }
+  if(remoteVideo) remoteVideo.srcObject = null;
+  partnerId = null;
+  logStatus('Disconnected');
+  resetUI();
+}
+
+// ---------------- UI helpers ----------------
+function appendMessage({ fromName='Stranger', text='', me=false, type='text', dataUrl=null }){
+  if(!messagesEl) return;
+  const wrapper = document.createElement('div');
+  wrapper.className = 'message';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble ' + (me ? 'me' : 'other');
+
+  if(type === 'text'){
+    bubble.innerHTML = `<strong>${fromName}</strong><div style="margin-top:6px">${escapeHtml(text)}</div>`;
+  } else if(type === 'image' && dataUrl){
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    img.style.maxWidth = '240px';
+    img.style.borderRadius = '8px';
+    bubble.appendChild(document.createTextNode(fromName));
+    bubble.appendChild(document.createElement('br'));
+    bubble.appendChild(img);
+  } else if(type === 'audio' && dataUrl){
+    const audio = document.createElement('audio');
+    audio.controls = true;
+    audio.src = dataUrl;
+    bubble.appendChild(document.createTextNode(fromName));
+    bubble.appendChild(document.createElement('br'));
+    bubble.appendChild(audio);
+  } else {
+    bubble.textContent = text || '[file]';
+  }
+
+  wrapper.appendChild(bubble);
+  messagesEl.appendChild(wrapper);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+// small escape to avoid HTML injection
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
+}
+
+// file -> base64
+function fileToDataURL(file){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = ()=>resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+// ---------------- Event wiring (guarded) ----------------
+// Find / Next / Disconnect
+if(findBtn) findBtn.onclick = async () => {
+  try{
+    if(!localStream) await startLocalStream();
+    socket.emit('joinQueue', window.QUIKCHAT_USER || {});
+    logStatus('Searching...');
+    findBtn.disabled = true;
+  }catch(e){
+    console.error(e);
+    findBtn.disabled = false;
+  }
+};
+if(nextBtn) nextBtn.onclick = () => {
+  hangup();
+  socket.emit('next');
+  if(findBtn) findBtn.disabled = true;
+  if(nextBtn) nextBtn.disabled = true;
+  if(disconnectBtn) disconnectBtn.disabled = true;
+  logStatus('Searching next...');
+};
+if(disconnectBtn) disconnectBtn.onclick = () => {
+  socket.emit('leaveQueue');
+  hangup();
+  resetUI();
+  logStatus('Idle');
+};
+
+// Mute / Video toggle
+if(muteBtn) muteBtn.onclick = () => {
+  if(!localStream) return;
+  const enabled = localStream.getAudioTracks().some(t=>t.enabled);
+  localStream.getAudioTracks().forEach(t => t.enabled = !enabled);
+  muteBtn.textContent = enabled ? 'Unmute' : 'Mute';
+};
+if(videoBtn) videoBtn.onclick = () => {
+  if(!localStream) return;
+  const enabled = localStream.getVideoTracks().some(t=>t.enabled);
+  localStream.getVideoTracks().forEach(t => t.enabled = !enabled);
+  videoBtn.textContent = enabled ? 'Video On' : 'Video Off';
+};
+
+// switch camera (best-effort)
+if(switchCamBtn) switchCamBtn.onclick = async () => {
+  if(!localStream) return;
+  try{
+    const cam = localStream.getVideoTracks()[0];
+    const facing = cam.getSettings && cam.getSettings().facingMode === 'user' ? 'environment' : 'user';
+    const ns = await navigator.mediaDevices.getUserMedia({ video:{ facingMode: facing }, audio:true });
+    const newTrack = ns.getVideoTracks()[0];
+    localStream.removeTrack(cam);
+    localStream.addTrack(newTrack);
+    if(pc){
+      const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+      if(sender) sender.replaceTrack(newTrack);
+    }
+  }catch(e){
+    console.warn('switch camera failed', e);
+  }
+};
+
+// chat send
+if(sendBtn && messageInput){
+  sendBtn.onclick = () => {
+    const txt = (messageInput.value || '').trim();
+    if(!txt || !partnerId) return;
+    // send as signalling msg to partner
+    socket.emit('signal', { to: partnerId, type: 'msg', payload: { text: txt, name: window.QUIKCHAT_USER && window.QUIKCHAT_USER.name } });
+    appendMessage({ fromName: window.QUIKCHAT_USER ? window.QUIKCHAT_USER.name : 'You', text: txt, me:true });
+    messageInput.value = '';
+  };
+}
+
+// file inputs
+if(imageInput){
+  imageInput.onchange = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if(!f || !partnerId) return;
+    const dataUrl = await fileToDataURL(f);
+    socket.emit('file', { to: partnerId, type: 'image', name: window.QUIKCHAT_USER && window.QUIKCHAT_USER.name, data: dataUrl });
+    appendMessage({ fromName: window.QUIKCHAT_USER ? window.QUIKCHAT_USER.name : 'You', type:'image', dataUrl, me:true });
+    e.target.value = '';
+  };
+}
+if(musicInput){
+  musicInput.onchange = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if(!f || !partnerId) return;
+    const dataUrl = await fileToDataURL(f);
+    socket.emit('file', { to: partnerId, type: 'audio', name: window.QUIKCHAT_USER && window.QUIKCHAT_USER.name, data: dataUrl });
+    appendMessage({ fromName: window.QUIKCHAT_USER ? window.QUIKCHAT_USER.name : 'You', type:'audio', dataUrl, me:true });
+    e.target.value = '';
+  };
+}
+
+// coin helper
+function addCoins(n){
+  coins += n;
+  if(coinValueEl) coinValueEl.textContent = coins;
+}
+
+// ---------------- Socket handlers ----------------
+
+// When server pairs you with partner
+socket.on('paired', async (data) => {
+  partnerId = data.partner;
+  logStatus('Paired: ' + partnerId);
+  if(nextBtn) nextBtn.disabled = false;
+  if(disconnectBtn) disconnectBtn.disabled = false;
+  if(muteBtn) muteBtn.disabled = false;
+  if(videoBtn) videoBtn.disabled = false;
+
+  // ensure local stream ready
+  await startLocalStream();
+  createPeerConnection();
+
+  // decide who makes offer
+  const makeOffer = socket.id < partnerId;
+  if(makeOffer){
+    try{
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit('signal', { to: partnerId, type: 'offer', payload: offer });
+      logStatus('Offer sent');
+    }catch(e){ console.error(e); }
+  } else {
+    logStatus('Waiting for offer...');
+  }
+});
+
+// general signalling wrapper
+socket.on('signal', async (msg) => {
+  if(!msg || !msg.type) return;
+
+  const from = msg.from || (msg.payload && msg.payload.from);
+
+  // make sure pc exists
+  if(!pc && (msg.type === 'offer' || msg.type === 'ice' || msg.type === 'answer')){
+    await startLocalStream();
+    createPeerConnection();
+  }
+
+  if(msg.type === 'offer'){
+    partnerId = from;
+    logStatus('Offer received');
+    try{
+      await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit('signal', { to: from, type: 'answer', payload: answer });
+      logStatus('Answer sent');
+    }catch(e){ console.error(e); }
+  } else if(msg.type === 'answer'){
+    logStatus('Answer received');
+    try{ await pc.setRemoteDescription(new RTCSessionDescription(msg.payload)); }catch(e){}
+  } else if(msg.type === 'ice'){
+    try{ await pc.addIceCandidate(new RTCIceCandidate(msg.payload)); }catch(e){}
+  } else if(msg.type === 'msg'){
+    // chat forwarded
+    const p = msg.payload || {};
+    appendMessage({ fromName: p.name || 'Partner', text: p.text || '' , me:false});
+  } else if(msg.type === 'file'){
+    // sometimes signaling file may be used; we handle server 'file' event below
+    console.log('signal file payload', msg.payload);
+  }
+});
+
+// text chat event (alternative)
+socket.on('chat', (m) => {
+  if(!m) return;
+  appendMessage({ fromName: m.name || 'Stranger', text: m.text || '' });
+});
+
+// file incoming (from server forward)
+socket.on('file', (m) => {
+  if(!m || !m.payload) return;
+  const p = m.payload;
+  if(p.type === 'image' && p.data){
+    appendMessage({ fromName: p.name || 'Partner', type:'image', dataUrl: p.data, me:false });
+  } else if(p.type === 'audio' && p.data){
+    appendMessage({ fromName: p.name || 'Partner', type:'audio', dataUrl: p.data, me:false });
+  } else {
+    appendMessage({ fromName: p.name || 'Partner', text: '[file received]' });
+  }
+});
+
+// peer disconnected
+socket.on('peer-disconnected', (data) => {
+  if(!partnerId) return;
+  if(data && data.id === partnerId){
+    logStatus('Partner disconnected');
+    hangup();
+    resetUI();
+  }
+});
+
+// coins update
+socket.on('coins', (c) => {
+  if(coinValueEl) coinValueEl.textContent = c || 0;
+});
+
+// private invite handling
+socket.on('private-invite', (payload) => {
+  if(confirm('Private invite received. Accept?')){
+    socket.emit('private-accept', { to: payload.from, roomId: payload.roomId });
+  } else {
+    socket.emit('private-decline', { to: payload.from });
+  }
+});
+
+// UI init
+resetUI();
+logStatus('Idle');
+
+// firebase optional init
+if(window.FIREBASE_CONFIG && typeof firebase !== 'undefined'){
+  try{ firebase.initializeApp(window.FIREBASE_CONFIG); console.log('Firebase init'); }catch(e){console.warn(e);}
+                  }
+doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QuikChat - 1-on-1 Video Chat</title>
-    <link rel="stylesheet" href="styles.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css">
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>QuikChat — Global</title>
+  <link rel="stylesheet" href="style.css">
 </head>
-<body>
-    <!-- Start Screen -->
-    <div id="startScreen" class="screen active">
-        <div class="container">
-            <div class="logo">
-                <i class="fas fa-video"></i>
-                <h1>QuikChat</h1>
-                <p class="tagline">Connect with people worldwide</p>
-            </div>
-            
-            <div class="profile-setup">
-                <div class="avatar-section">
-                    <div class="avatar" id="avatarPreview">
-                        <i class="fas fa-user"></i>
-                    </div>
-                    <input type="file" id="avatarInput" accept="image/*" hidden>
-                    <button class="btn-secondary" onclick="document.getElementById('avatarInput').click()">
-                        <i class="fas fa-camera"></i> Upload Photo
-                    </button>
-                </div>
-                
-                <div class="form-group">
-                    <input type="text" id="nameInput" placeholder="Your Name" maxlength="20" value="User">
-                    <div class="char-count">4/20</div>
-                </div>
-                
-                <div class="form-row">
-                    <div class="form-group">
-                        <select id="genderSelect">
-                            <option value="">Select Gender</option>
-                            <option value="male" selected>Male</option>
-                            <option value="female">Female</option>
-                            <option value="other">Other</option>
-                        </select>
-                    </div>
-                    
-                    <div class="form-group">
-                        <input type="number" id="ageInput" placeholder="Age" min="18" max="100" value="25">
-                    </div>
-                </div>
-                
-                <div class="form-group">
-                    <select id="countrySelect">
-                        <option value="">Select Country</option>
-                        <option value="IN" selected>India</option>
-                        <option value="US">USA</option>
-                        <option value="UK">UK</option>
-                        <option value="CA">Canada</option>
-                        <option value="AU">Australia</option>
-                        <option value="DE">Germany</option>
-                        <option value="FR">France</option>
-                        <option value="JP">Japan</option>
-                    </select>
-                </div>
-                
-                <div class="preferences-box">
-                    <h3><i class="fas fa-sliders-h"></i> Chat Preferences</h3>
-                    
-                    <div class="preference">
-                        <label>I want to chat with:</label>
-                        <select id="prefGender">
-                            <option value="any">Any Gender</option>
-                            <option value="male">Male Only</option>
-                            <option value="female">Female Only</option>
-                            <option value="other">Other Only</option>
-                        </select>
-                    </div>
-                    
-                    <div class="preference">
-                        <label>From Country:</label>
-                        <select id="prefCountry">
-                            <option value="any">Any Country</option>
-                            <option value="IN">India</option>
-                            <option value="US">USA</option>
-                            <option value="UK">UK</option>
-                        </select>
-                    </div>
-                    
-                    <div class="age-range">
-                        <label>Age Range: <span id="ageRangeText">18-60</span></label>
-                        <div class="range-slider">
-                            <input type="range" id="minAge" min="18" max="60" value="18">
-                            <input type="range" id="maxAge" min="18" max="60" value="60">
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="terms">
-                    <label class="checkbox">
-                        <input type="checkbox" id="acceptTerms" checked>
-                        <span>I agree to <a href="#">Terms</a> & <a href="#">Community Guidelines</a></span>
-                    </label>
-                </div>
-                
-                <button class="btn-primary" onclick="startChatting()">
-                    <i class="fas fa-play"></i> Start Chatting
-                </button>
-            </div>
-        </div>
-    </div>
+<body><div class="overlay" id="startOverlay">
+  <div class="popup">
+    <h2>Welcome to QuikChat</h2>
+    <input type="text" id="nameInput" placeholder="Enter your name">
     
-    <!-- Main Chat Interface -->
-    <div id="chatScreen" class="screen">
-        <div class="app-container">
-            <!-- Top Bar -->
-            <div class="top-bar">
-                <div class="user-info">
-                    <div class="avatar-small" id="userAvatar">
-                        <i class="fas fa-user"></i>
-                    </div>
-                    <div>
-                        <div class="user-name" id="displayName">User</div>
-                        <div class="user-status online" id="connectionStatus">Online</div>
-                    </div>
-                </div>
-                
-                <div class="app-title">
-                    <h2><i class="fas fa-video"></i> QuikChat</h2>
-                </div>
-                
-                <div class="top-actions">
-                    <div class="coins-display">
-                        <i class="fas fa-coins"></i>
-                        <span id="coinCount">100</span>
-                        <button class="btn-earn" onclick="showAdModal()">+ Earn</button>
-                    </div>
-                    
-                    <button class="icon-btn" onclick="toggleSettings()">
-                        <i class="fas fa-cog"></i>
-                    </button>
-                    
-                    <button class="icon-btn premium-btn" onclick="showPremiumModal()">
-                        <i class="fas fa-crown"></i>
-                    </button>
-                </div>
-            </div>
-            
-            <!-- Main Content -->
-            <div class="main-content">
-                <!-- Video Section -->
-                <div class="video-section">
-                    <!-- Remote Video -->
-                    <div class="video-container remote-video">
-                        <video id="remoteVideo" autoplay playsinline></video>
-                        <div class="video-overlay" id="remoteOverlay">
-                            <div class="partner-info">
-                                <h3 id="partnerName">Waiting for partner...</h3>
-                                <div class="partner-details">
-                                    <span class="gender-badge" id="partnerGender">Unknown</span>
-                                    <span class="country-flag" id="partnerCountry">🌐</span>
-                                </div>
-                            </div>
-                            <div class="connection-info">
-                                <div class="status" id="callStatus">
-                                    <i class="fas fa-wifi"></i>
-                                    <span>Connecting...</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Local Video -->
-                    <div class="video-container local-video">
-                        <video id="localVideo" autoplay playsinline muted></video>
-                        <div class="local-controls">
-                            <button class="control-btn" id="muteBtn" title="Mute">
-                                <i class="fas fa-microphone"></i>
-                            </button>
-                            <button class="control-btn" id="videoBtn" title="Turn off camera">
-                                <i class="fas fa-video"></i>
-                            </button>
-                            <button class="control-btn" id="switchCamBtn" title="Switch camera">
-                                <i class="fas fa-sync-alt"></i>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Control Buttons -->
-                <div class="control-section">
-                    <button class="control-btn-large primary" id="findBtn" onclick="findPartner()">
-                        <i class="fas fa-search"></i>
-                        <span>Find Partner</span>
-                    </button>
-                    
-                    <button class="control-btn-large" id="nextBtn" onclick="nextPartner()" disabled>
-                        <i class="fas fa-forward"></i>
-                        <span>Next</span>
-                    </button>
-                    
-                    <button class="control-btn-large danger" id="disconnectBtn" onclick="disconnectCall()" disabled>
-                        <i class="fas fa-phone-slash"></i>
-                        <span>Disconnect</span>
-                    </button>
-                    
-                    <button class="control-btn-large" id="reportBtn" onclick="reportUser()" disabled>
-                        <i class="fas fa-flag"></i>
-                        <span>Report</span>
-                    </button>
-                    
-                    <button class="control-btn-large success" id="privateBtn" onclick="showPrivateModal()">
-                        <i class="fas fa-lock"></i>
-                        <span>Private Chat</span>
-                    </button>
-                </div>
-                
-                <!-- Chat Panel -->
-                <div class="chat-panel">
-                    <div class="chat-header">
-                        <h3><i class="fas fa-comments"></i> Chat</h3>
-                        <div class="chat-actions">
-                            <button class="icon-btn small" onclick="clearChat()">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                            <button class="icon-btn small" onclick="toggleChat()">
-                                <i class="fas fa-chevron-down"></i>
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <div class="chat-messages" id="chatMessages">
-                        <div class="system-message">
-                            <p>Welcome to QuikChat! Click "Find Partner" to start.</p>
-                        </div>
-                    </div>
-                    
-                    <div class="chat-input">
-                        <div class="input-actions">
-                            <button class="input-btn" onclick="openImagePicker()">
-                                <i class="fas fa-image"></i>
-                            </button>
-                            <button class="input-btn" onclick="openFilePicker()">
-                                <i class="fas fa-paperclip"></i>
-                            </button>
-                            <button class="input-btn" onclick="sendEmoji()">
-                                <i class="far fa-smile"></i>
-                            </button>
-                        </div>
-                        
-                        <input type="text" 
-                               id="messageInput" 
-                               placeholder="Type your message..."
-                               onkeypress="if(event.key === 'Enter') sendMessage()">
-                        
-                        <button class="send-btn" onclick="sendMessage()">
-                            <i class="fas fa-paper-plane"></i>
-                        </button>
-                    </div>
-                </div>
-                
-                <!-- Sidebar -->
-                <div class="sidebar">
-                    <div class="sidebar-section">
-                        <h3><i class="fas fa-users"></i> Online (<span id="onlineCount">0</span>)</h3>
-                        <div class="online-list" id="onlineList">
-                            <div class="empty-list">Loading...</div>
-                        </div>
-                    </div>
-                    
-                    <div class="sidebar-section">
-                        <h3><i class="fas fa-id-card"></i> Your ID</h3>
-                        <div class="user-id">
-                            <code id="userId">Connecting...</code>
-                            <button class="copy-btn" onclick="copyUserId()">
-                                <i class="fas fa-copy"></i>
-                            </button>
-                        </div>
-                        <p class="help-text">Share this ID for private chats</p>
-                    </div>
-                    
-                    <div class="sidebar-section">
-                        <h3><i class="fas fa-user-plus"></i> Quick Private</h3>
-                        <div class="private-invite">
-                            <input type="text" id="privateIdInput" placeholder="Friend's ID">
-                            <button class="btn-private" onclick="sendPrivateInvite()">
-                                <i class="fas fa-lock"></i> Invite
-                            </button>
-                        </div>
-                        <div class="private-option">
-                            <label>
-                                <input type="checkbox" id="paidPrivate">
-                                Paid Private (10 coins/min)
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div class="sidebar-section stats">
-                        <h3><i class="fas fa-chart-bar"></i> Stats</h3>
-                        <div class="stat">
-                            <span>Total Chats:</span>
-                            <strong id="totalChats">0</strong>
-                        </div>
-                        <div class="stat">
-                            <span>Rating:</span>
-                            <strong id="userRating">5.0</strong>
-                        </div>
-                        <div class="stat">
-                            <span>Time:</span>
-                            <strong id="callTimer">00:00</strong>
-                        </div>
-                    </div>
-                </div>
-            </div>
+    <select id="genderInput">
+      <option value="">Select Gender</option>
+      <option value="Male">Male</option>
+      <option value="Female">Female</option>
+    </select>
+
+    <button onclick="startApp()">Start</button>
+  </div>
+</div>
+  <div class="app">
+    <header class="topbar">
+      <h1>QuikChat</h1>
+      <div class="actions">
+        <button id="privateBtn" title="Invite to private room">🔒 Private</button>
+        <button id="findBtn" class="primary">Find Partner</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="video-col">
+        <div class="card">
+          <div class="card-title">You</div>
+          <video id="localVideo" autoplay muted playsinline></video>
         </div>
-        
-        <!-- Modals -->
-        <div id="adModal" class="modal">
-            <div class="modal-content">
-                <h3><i class="fas fa-ad"></i> Watch Ad for Coins</h3>
-                <div class="ad-preview">
-                    <p>Advertisement will play here</p>
-                    <div class="fake-ad">
-                        <div class="ad-content">
-                            <h4>Special Offer!</h4>
-                            <p>Get 50% off on Premium</p>
-                            <button class="btn-ad">Learn More</button>
-                        </div>
-                    </div>
-                </div>
-                <p>Reward: <strong>5 coins</strong></p>
-                <div class="modal-actions">
-                    <button class="btn-secondary" onclick="closeModal('adModal')">Skip</button>
-                    <button class="btn-primary" onclick="completeAd()">
-                        <i class="fas fa-play"></i> Watch Ad (5s)
-                    </button>
-                </div>
-            </div>
+
+        <div class="card">
+          <div class="card-title">Partner</div>
+          <video id="remoteVideo" autoplay playsinline></video>
         </div>
-        
-        <div id="privateModal" class="modal">
-            <div class="modal-content">
-                <h3><i class="fas fa-lock"></i> Private Chat</h3>
-                <div class="private-options">
-                    <div class="private-option-card" onclick="startPrivateRoom(false)">
-                        <div class="option-icon">
-                            <i class="fas fa-comment-alt"></i>
-                        </div>
-                        <h4>Free Private</h4>
-                        <p>Chat privately with a friend for free</p>
-                    </div>
-                    
-                    <div class="private-option-card premium" onclick="startPrivateRoom(true)">
-                        <div class="option-icon">
-                            <i class="fas fa-crown"></i>
-                        </div>
-                        <h4>Paid Private</h4>
-                        <p>10 coins/minute • Better quality</p>
-                        <div class="coin-badge">Premium</div>
-                    </div>
-                </div>
-                
-                <div class="invite-section">
-                    <h4>Invite by ID</h4>
-                    <div class="invite-input">
-                        <input type="text" id="inviteIdInput" placeholder="Enter friend's ID">
-                        <button class="btn-invite" onclick="inviteById()">
-                            <i class="fas fa-paper-plane"></i> Send Invite
-                        </button>
-                    </div>
-                </div>
-                
-                <button class="btn-secondary" onclick="closeModal('privateModal')">Cancel</button>
-            </div>
+
+        <div class="controls">
+          <button id="nextBtn">Next</button>
+          <button id="disconnectBtn">Disconnect</button>
+          <button id="muteBtn">Mute</button>
+          <button id="videoBtn">Video Off</button>
+          <span id="status" class="status">Idle</span>
         </div>
-        
-        <div id="premiumModal" class="modal">
-            <div class="modal-content premium-content">
-                <h3><i class="fas fa-crown"></i> Go Premium</h3>
-                <div class="premium-benefits">
-                    <div class="benefit">
-                        <i class="fas fa-check-circle"></i>
-                        <span>No ads ever</span>
-                    </div>
-                    <div class="benefit">
-                        <i class="fas fa-check-circle"></i>
-                        <span>Unlimited private chats</span>
-                    </div>
-                    <div class="benefit">
-                        <i class="fas fa-check-circle"></i>
-                        <span>Female-to-female free</span>
-                    </div>
-                    <div class="benefit">
-                        <i class="fas fa-check-circle"></i>
-                        <span>Priority matching</span>
-                    </div>
-                </div>
-                
-                <div class="pricing">
-                    <div class="price-card">
-                        <h4>Monthly</h4>
-                        <div class="price">₹99</div>
-                        <button class="btn-price">Subscribe</button>
-                    </div>
-                    <div class="price-card popular">
-                        <div class="badge">Popular</div>
-                        <h4>Quarterly</h4>
-                        <div class="price">₹249</div>
-                        <button class="btn-price">Subscribe</button>
-                    </div>
-                    <div class="price-card">
-                        <h4>Yearly</h4>
-                        <div class="price">₹799</div>
-                        <button class="btn-price">Subscribe</button>
-                    </div>
-                </div>
-                
-                <button class="btn-secondary" onclick="closeModal('premiumModal')">Maybe Later</button>
-            </div>
+      </section>
+
+      <aside class="chat-col">
+        <div class="card chat-card">
+          <div id="messages" class="messages"></div>
+
+          <div class="input-row">
+            <input id="messageInput" placeholder="Say hi..." />
+            <button id="sendBtn">Send</button>
+          </div>
+
+          <div class="file-row">
+            <label class="file-btn">📷 <input type="file" id="imageInput" accept="image/*"></label>
+            <label class="file-btn">🎵 <input type="file" id="musicInput" accept="audio/*"></label>
+            <div class="coins">Coins: <span id="coinValue">0</span></div>
+          </div>
         </div>
-    </div>
-    
-    <!-- Scripts -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.4/socket.io.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
-    <script src="script.js"></script>
-    
-    <script>
-        // Initialize toastr
-        toastr.options = {
-            positionClass: "toast-top-right",
-            progressBar: true,
-            timeOut: 3000
-        };
-    </script>
+
+        <div class="card info-card">
+          <h3>Privacy & Rules</h3>
+          <p>Public chat blocks nudity (automated heuristic). Private room is private — users may share at their choice. Use responsibly.</p>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- optional firebase config; put your config in this file or set window.FIREBASE_CONFIG before load -->
+  <script src="firebase-config.js"></script>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="script.js"></script>
 </body>
-  </html>
+</html>
