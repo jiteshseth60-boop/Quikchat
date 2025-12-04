@@ -12,7 +12,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 
 // ---- socket.io ----
-const socket = io("https://quikchat12.onrender.com", {
+const socket = io("https://quikchat-global.onrender.com", {
   transports: ["websocket"]
 });
 
