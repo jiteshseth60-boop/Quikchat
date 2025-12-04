@@ -1,100 +1,24 @@
-{
-  "name": "quikchat-global",
-  "version": "1.0.0",
-  "description": "QuikChat - Random 1on1 Video Chat (Node + Express + Socket.io + WebRTC)",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "author": "QuikChat",
-  "license": "MIT",
-  "dependencies": {
-    "express": "^4.18.2",
-    "socket.io": "^4.7.2"
-  }
+body{
+  margin:0; padding:0; font-family:Poppins,Segoe UI;
+  background:linear-gradient(135deg,#00172A,#002A4A);
+  color:#fff; display:flex; justify-content:center; align-items:center; height:100vh;
 }
-style.css - QuikChat responsive dark theme */
-
-:root{
-  --bg: #0b1220;
-  --card: linear-gradient(180deg, rgba(10,14,25,0.75), rgba(6,10,18,0.9));
-  --accent: linear-gradient(90deg,#3db0ff,#8f6bff);
-  --muted: #9aa6b2;
-  --radius: 12px;
+.app{
+  width:95%; max-width:900px;
+  padding:16px; border-radius:12px;
+  background:rgba(255,255,255,0.07);
 }
+.videos{display:flex; gap:10px;}
+video{width:100%; height:300px; background:#000; border-radius:8px;}
 
-*{box-sizing:border-box}
-html,body{height:100%;margin:0;font-family:Inter, system-ui, Arial, sans-serif;background:var(--bg);color:#e6eef6}
-a{color:inherit}
+.controls{margin-top:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+.controls button{padding:8px 12px; border-radius:8px; border:0; background:#0f172a; color:#fff; cursor:pointer}
+.controls button:disabled{opacity:.4}
 
-.app{max-width:1200px;margin:18px auto;padding:16px}
-.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
-.topbar h1{font-size:24px;margin:0}
-.actions{display:flex;gap:10px}
-button{cursor:pointer;border:0;padding:8px 12px;border-radius:10px;background:rgba(255,255,255,0.03);color:#eaf3ff}
-button.primary{background:var(--accent);color:#fff;font-weight:600;padding:10px 14px}
-
-/* layout */
-.layout{display:grid;grid-template-columns:1fr 360px;gap:16px}
-@media (max-width:900px){ .layout{grid-template-columns:1fr} }
-
-/* cards */
-.card{background:var(--card);padding:12px;border-radius:var(--radius);box-shadow:0 6px 20px rgba(2,6,20,0.6);border:1px solid rgba(255,255,255,0.02)}
-.card-title{font-size:13px;color:var(--muted);margin-bottom:8px}
-
-/* video container */
-.video-col{display:flex;flex-direction:column;gap:12px}
-.video-container{position:relative;width:100%;height:calc(100vh - 220px);min-height:320px;background:#000;border-radius:12px;overflow:hidden}
-@media (max-width:900px){ .video-container{height:60vh} }
-
-/* local and remote videos inside */
-#localVideo,#remoteVideo{width:100%;height:100%;object-fit:cover;border-radius:8px;display:block}
-
-/* remote small preview - absolute */
-#remoteVideo{
-  position:absolute;
-  right:12px;
-  top:12px;
-  width:160px;
-  height:120px;
-  z-index:10;
-  border:2px solid rgba(255,255,255,0.07);
-  border-radius:10px;
-  background:#000;
-  box-shadow:0 8px 28px rgba(0,0,0,0.6);
+.chat-box{
+  position:fixed; bottom:0; left:0; width:100%;
+  background:#0a0f1d; padding:10px; border-top:1px solid #333;
 }
-@media (max-width:600px){
-  #remoteVideo{width:120px;height:90px;right:8px;top:8px}
-}
-
-/* controls */
-.controls{display:flex;gap:8px;align-items:center;margin-top:6px}
-.controls button{background:rgba(255,255,255,0.03);padding:8px 10px}
-.status{margin-left:auto;color:var(--muted)}
-
-/* chat column */
-.chat-col{display:flex;flex-direction:column;gap:12px}
-.messages{height:calc(100vh - 420px);overflow:auto;padding:8px;border-radius:8px;background:linear-gradient(180deg,rgba(255,255,255,0.01),transparent)}
-@media (max-width:900px){ .messages{height:220px} }
-
-.input-row{display:flex;gap:8px;margin-top:8px}
-.input-row input{flex:1;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.03);background:transparent;color:#eaf3ff}
-.input-row button{padding:10px 12px}
-
-.file-row{display:flex;gap:8px;align-items:center;margin-top:10px}
-.file-btn{background:rgba(255,255,255,0.02);padding:8px;border-radius:8px;cursor:pointer}
-.file-btn input{display:none}
-.coins{margin-left:auto;color:var(--muted)}
-
-/* overlay start screen */
-.overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(2,4,8,0.7);display:flex;justify-content:center;align-items:center;z-index:9999}
-.popup{background:#fff;padding:20px;border-radius:12px;width:90%;max-width:360px;text-align:center}
-.popup h2{margin:0 0 12px 0}
-.popup input,.popup select{width:100%;padding:10px;margin:8px 0;border-radius:8px;border:1px solid #ddd}
-.popup button{margin-top:8px;width:100%;padding:12px;background:var(--accent);color:#fff;border-radius:10px;border:0}
-
-/* info-card */
-.info-card p{margin:8px 0;color:var(--muted);font-size:14px}
-
-/* small helpers */
-.hidden{display:none}
+#messages{height:160px; overflow-y:auto; margin-bottom:6px;}
+.msg{padding:6px 10px; background:#1f2937; margin:6px; border-radius:6px;}
+.me{background:#0ea5e9}
