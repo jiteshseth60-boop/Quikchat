@@ -7,8 +7,8 @@ const { Server } = require("socket.io");
 const app = express();
 app.use(cors());
 app.use(express.static(__dirname + "/public"));
-app.get("/google9d84c28f33334f71.html", (req, res) => {
-  res.sendFile(__dirname + "/google9d84c28f33334f71.html");
+app.get("/google9d84c28f333347f1-3.html", (req, res) => {
+  res.sendFile(__dirname + "/public/google9d84c28f333347f1-3.html");
 });
 const server = http.createServer(app);
 const io = new Server(server, {
