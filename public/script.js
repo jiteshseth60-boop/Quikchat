@@ -61,10 +61,8 @@ const ICE_CONFIG = {
         { urls: "stun:stun.stunprotocol.org:3478" },
         { urls: "stun:stun.voipbuster.com" }
           // Add TURN if/when you have it
- 
-  ]
-
-};
+ ]
+   };
 
 function setStatus(t){ statusTop.innerText = t; }
 function showSearchAnim(show){ searchAnim.style.display = show ? "block" : "none"; }
