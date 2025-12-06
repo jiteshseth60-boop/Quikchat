@@ -378,7 +378,11 @@ socket.on("image", (img) => {
 socket.on("sticker", (st) => {
   remoteSticker.src = st.data; remoteSticker.hidden = false;
 });
-
+socket.on("admin-stats", (d) => {
+  if (onlineCount) {
+    onlineCount.innerText = d.connected || 0;
+  }
+});
 socket.on("peer-left", () => {
   addChat("Partner left.");
   // close pc to cleanup and allow quick rematch
