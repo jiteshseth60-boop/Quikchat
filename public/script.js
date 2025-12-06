@@ -23,6 +23,7 @@ const genderSelect = document.getElementById("genderSelect");
 const countrySelect = document.getElementById("countrySelect");
 const nameInput = document.getElementById("nameInput");
 const coinsVal = document.getElementById("coinsVal");
+const watchAdBtn = document.getElementById("watchAdBtn");
 const uploadBtn = document.getElementById("uploadBtn");
 const imageUpload = document.getElementById("imageUpload");
 const stickerBtn = document.getElementById("stickerBtn");
