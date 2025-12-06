@@ -103,7 +103,23 @@ socket.on("disconnect", () => {
   socket.on("image", (d) => socket.room && socket.to(socket.room).emit("image", d));
   socket.on("sticker", (d) => socket.room && socket.to(socket.room).emit("sticker", d));
   socket.on("chat", (d) => socket.room && socket.to(socket.room).emit("chat", d));
+// REPORT
+socket.on("report", (data) => {
+  console.log("REPORT RECEIVED:", data);
 
+  // You can store later to DB/Firebase here, for now console log
+  /*
+  reports.push({
+    reporter: socket.id,
+    reported: data.partnerId,
+    reason: data.reason,
+    time: data.time
+  });
+  */
+
+  // Notify admin or owner (Optional)
+  io.emit("admin-report", data);
+});
   // LEAVE ROOM
   socket.on("leave", () => {
     if (socket.room) {
