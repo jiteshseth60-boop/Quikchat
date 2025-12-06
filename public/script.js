@@ -5,6 +5,7 @@ const socket = io("https://quikchat12.onrender.com", {
 
 // UI elements
 const findBtn = document.getElementById("findBtn");
+const onlineCount = document.getElementById("onlineCount");
 const nextBtn = document.getElementById("nextBtn");
 const disconnectBtn = document.getElementById("disconnectBtn");
 const muteBtn = document.getElementById("muteBtn");
