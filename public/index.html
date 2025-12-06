@@ -1,6 +1,18 @@
 <!doctype html>
 <html lang="en">
-<head><!-- Firebase compat scripts for old app.js support -->
+<head>
+  <!-- FB & Insta Camera Block Detect + Message -->
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const ua = navigator.userAgent || navigator.vendor || window.opera;
+
+    if (ua.includes("FBAN") || ua.includes("FBAV") || ua.includes("Instagram")) {
+      alert("⚠ CAMERA & MIC BLOCKED in Facebook/Instagram Browser!\n\nPlease open QuikChat in Chrome for video calling.\n\n— Powered by Jitesh x ChatGPT");
+      window.location.href = "googlechrome://navigate?url=https://quikchat12.onrender.com";
+    }
+  });
+</script>
+  <!-- Firebase compat scripts for old app.js support -->
 <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
