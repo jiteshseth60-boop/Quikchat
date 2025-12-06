@@ -72,7 +72,7 @@ function showSearchAnim(show){ searchAnim.style.display = show ? "block" : "none
 function startTimer(){
   stopTimer();
   seconds = 0;
-  timerInterval = setInterval(()=> ³{
+  timerInterval = setInterval(()=> {
     seconds++;
     const m = String(Math.floor(seconds/60)).padStart(2,'0');
     const s = String(seconds%60).padStart(2,'0');
