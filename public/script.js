@@ -141,10 +141,16 @@ function createPeerIfNeeded(){
   }
   return pc;
 }
-
+// load saved name
+const savedName = localStorage.getItem("username");
+if (savedName && nameInput) {
+  nameInput.value = savedName;
+}
 // UI handlers
 findBtn.onclick = async () => {
   try {
+   localStorage.setItem("username", nameInput.value);
+socket.emit("setName", nameInput.value); 
     setStatus("Searching partner...");
     showSearchAnim(true);
     findBtn.disabled = true;
