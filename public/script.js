@@ -55,19 +55,16 @@ watchAdBtn.onclick = () => {
 // ICE config (include TURN if you have credentials)
 const ICE_CONFIG = {
   iceServers: [
-        { urls: "stun:stun.l.google.com:19302" }
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
-        { urls: "stun:stun3.l.google.com:19302" },
-        { urls: "stun:stun4.l.google.com:19302" },
-            // Mozilla
-        { urls: "stun:stun.services.mozilla.com" },
-             // Global free
-        { urls: "stun:stun.stunprotocol.org:3478" },
-        { urls: "stun:stun.voipbuster.com" }
-          // Add TURN if/when you have it
- ]
-   };
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:stun3.l.google.com:19302" },
+    { urls: "stun:stun4.l.google.com:19302" },
+    { urls: "stun:stun.services.mozilla.com" },
+    { urls: "stun:stun.stunprotocol.org:3478" },
+    { urls: "stun:stun.voipbuster.com" }
+  ]
+};
 
 function setStatus(t){ statusTop.innerText = t; }
 function showSearchAnim(show){ searchAnim.style.display = show ? "block" : "none"; }
@@ -75,7 +72,7 @@ function showSearchAnim(show){ searchAnim.style.display = show ? "block" : "none
 function startTimer(){
   stopTimer();
   seconds = 0;
-  timerInterval = setInterval(()=> {
+  timerInterval = setInterval(()=> ³{
     seconds++;
     const m = String(Math.floor(seconds/60)).padStart(2,'0');
     const s = String(seconds%60).padStart(2,'0');
