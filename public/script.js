@@ -381,7 +381,19 @@ socket.on("sticker", (st) => {
 socket.on("admin-stats", (d) => {
   if (onlineCount) {
     onlineCount.innerText = d.connected || 0;
-  }
+ // REPORT
+reportBtn.addEventListener("click", () => {
+  const reason = prompt("Why are you reporting this user?\n(Abuse, Nude, Spam, Fake, Others)");
+  if (!reason) return;
+
+  socket.emit("report", {
+    partnerId: partnerId,
+    reason: reason,
+    time: Date.now()
+  });
+
+  alert("Report submitted. Thank you!");
+  leaveAndFind(false);
 });
 socket.on("peer-left", () => {
   addChat("Partner left.");
