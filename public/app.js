@@ -2,7 +2,25 @@
    Replace the firebaseConfig values below.
    This is the improved, production-ready single-file client.
 */
+/* ==== Fix for Facebook & Instagram in-app browser camera/mic block ==== */
+(function(){
+  const ua = navigator.userAgent || "";
+  const isFB = ua.includes("FBAN") || ua.includes("FBAV") || ua.includes("Instagram");
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
 
+  if (isFB || isIOS) {
+    document.body.innerHTML = `
+      <div style="padding:25px;font-size:20px;text-align:center;">
+        🚫 Facebook/Instagram Browser blocks camera & mic.<br><br>
+        👉 Please open in <b>Chrome</b> or <b>Default Browser</b><br><br>
+        <button onclick="window.location.href='googlechrome://navigate?url=' + window.location.href"
+          style="padding:15px 25px;font-size:22px;border-radius:12px;background:#0d6efd;color:#fff;">
+          OPEN IN CHROME
+        </button>
+      </div>
+    `;
+  }
+})();
 /* ======== FIREBASE CONFIG (REPLACE WITH YOUR VALUES) ======== */
 const firebaseConfig = {
   apiKey: "AIzaSyA48jHU548TouWUWNZF6EW2u2jiNdEhd7k",
