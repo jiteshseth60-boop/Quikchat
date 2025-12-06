@@ -19,7 +19,6 @@ const chatInput = document.getElementById("chatInput");
 const sendChatBtn = document.getElementById("sendChat");
 const localVideo = document.getElementById("localVideo");
 const remoteVideo = document.getElementById("remoteVideo");
-const reportBtn = document.getElementById("reportBtn");
 const genderSelect = document.getElementById("genderSelect");
 const countrySelect = document.getElementById("countrySelect");
 const nameInput = document.getElementById("nameInput");
