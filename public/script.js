@@ -47,7 +47,11 @@ let room = null;
 let coins = 500; // demo starting coins
 coinsVal.innerText = coins;
 localNameEl.innerText = `(You)`;
-
+watchAdBtn.onclick = () => {
+  coins += 20;
+  coinsVal.innerText = coins;
+  alert("You earned 20 coins! 🎉");
+};
 // ICE config (include TURN if you have credentials)
 const ICE_CONFIG = {
   iceServers: [
