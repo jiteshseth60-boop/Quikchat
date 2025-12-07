@@ -397,15 +397,15 @@ socket.on("sticker", (st) => {
   remoteSticker.src = st.data; remoteSticker.hidden = false;
 });
 socket.on("admin-stats", (d) => {
-  if (onlineCount) {
-    onlineCount.innerText = d.connected || 0;
- // REPORT
+  if (onlineCount) onlineCount.innerText = d.connected || 0;
+});
+
+// REPORT
 reportBtn.addEventListener("click", () => {
   const reason = prompt("Why are you reporting this user?\n(Abuse, Nude, Spam, Fake, Others)");
   if (!reason) return;
 
   socket.emit("report", {
-    partnerId: partnerId,
     reason: reason,
     time: Date.now()
   });
@@ -413,9 +413,9 @@ reportBtn.addEventListener("click", () => {
   alert("Report submitted. Thank you!");
   leaveAndFind(false);
 });
+
 socket.on("peer-left", () => {
   addChat("Partner left.");
-  // close pc to cleanup and allow quick rematch
   if (pc) try { pc.close(); } catch(e){}
   pc = null;
   remoteVideo.srcObject = null;
