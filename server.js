@@ -30,10 +30,7 @@ function broadcastAdminStats() {
 setInterval(broadcastAdminStats, 2000);
 
 io.on("connection", (socket) => {
-io.emit("admin-stats", { connected: io.engine.clientsCount });
-
-socket.on("disconnect", () => {
-  io.emit("admin-stats", { connected: io.engine.clientsCount });
+io.emit("admin-stats", { connected: io.engine.clientsCount 
 });
   console.log("Connected:", socket.id);
 
