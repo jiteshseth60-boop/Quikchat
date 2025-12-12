@@ -89,6 +89,21 @@ function addChat(txt){
   chatBox.scrollTop = chatBox.scrollHeight;
 }
 
+// -------------------------------------------------------------
+// NEW: Helper function to capture a frame from the local video stream
+function captureFrame() {
+  const canvas = document.createElement('canvas');
+  // Use current video dimensions
+  canvas.width = localVideo.videoWidth;
+  canvas.height = localVideo.videoHeight;
+  const ctx = canvas.getContext('2d');
+  // Draw the current video frame onto the canvas
+  ctx.drawImage(localVideo, 0, 0, canvas.width, canvas.height);
+  // Get image data in Base64 format (JPEG, 80% quality)
+  return canvas.toDataURL('image/jpeg', 0.8);
+}
+// -------------------------------------------------------------
+
 async function startLocalStream(){
   if (localStream) return localStream;
   try {
@@ -162,7 +177,7 @@ if (savedName && nameInput) {
 findBtn.onclick = async () => {
   try {
    localStorage.setItem("username", nameInput.value);
-socket.emit("setName", nameInput.value); 
+   socket.emit("setName", nameInput.value); 
     setStatus("Searching partner...");
     showSearchAnim(true);
     findBtn.disabled = true;
@@ -186,26 +201,44 @@ socket.emit("setName", nameInput.value);
   }
 };
 
+// --------------------------------------------------------------------------------------
+// UPDATED Handler: Triggers Age Verification flow before searching for a Private Partner
 privateBtn.onclick = async () => {
   if (coins < 100) { alert("Not enough coins for private call (100)."); return; }
-  const ok = confirm("Spend 100 coins to enter private match? (Both users must choose private)");
+  
+  const ok = confirm("Spend 100 coins for Private Match (Age Verification required)?");
   if (!ok) return;
+
   try {
-    setStatus("Searching private partner...");
+    // 1. Ensure camera is on and localStream is active
+    await startLocalStream();
+
+    setStatus("Verifying age for private access...");
     showSearchAnim(true);
     findBtn.disabled = true;
 
-    await startLocalStream();
+    // 2. Capture the image frame
+    const imageData = captureFrame();
+
+    // 3. Send the image data and options to the server for AI check
     const opts = {
-      gender: genderSelect.value,
-      country: countrySelect.value,
-      wantPrivate: true,
-      coins,
-      name: nameInput.value || null
+        gender: genderSelect.value,
+        country: countrySelect.value,
+        wantPrivate: true,
+        coins,
+        name: nameInput.value || null,
+        image: imageData // Pass the captured image
     };
-    socket.emit("findPartner", opts);
-  } catch (e) { console.warn(e); resetControls(); }
+    // New event name to signal verification is needed first
+    socket.emit("verifyAgeAndFindPartner", opts);
+    
+    // Server will respond with "ageRejected" or "partnerFound"/"waiting" if successful.
+  } catch (e) { 
+    console.warn("Private call start error", e); 
+    resetControls(); 
+  }
 };
+// --------------------------------------------------------------------------------------
 
 nextBtn.onclick = () => { leaveAndFind(true); };
 disconnectBtn.onclick = () => { leaveAndFind(false); };
@@ -297,6 +330,20 @@ socket.on("waiting", () => {
   showSearchAnim(true);
 });
 
+// --------------------------------------------------------------------------------------
+// NEW LISTENERS for Age Verification Feedback
+socket.on("ageRejected", () => {
+    alert("Verification failed. You must be 18+ to access Private Matches.");
+    resetControls();
+});
+
+socket.on("verificationSuccessful", (data) => {
+    // Server confirms age is 18+, now searching (this is redundant, but confirms flow)
+    setStatus("Verification successful. Searching for partner...");
+});
+// --------------------------------------------------------------------------------------
+
+
 socket.on("partnerFound", async (data) => {
   try {
     console.log("partnerFound", data);
@@ -305,6 +352,8 @@ socket.on("partnerFound", async (data) => {
 
     // local coin deduction demo if private requested
     if (data.partnerMeta && data.partnerMeta.wantPrivate) {
+      // NOTE: Coin deduction should ideally happen on the server after verification and matching.
+      // Keeping this client-side deduction for the demo state.
       if (coins >= 100) {
         coins -= 100;
         coinsVal.innerText = coins;
@@ -318,7 +367,7 @@ socket.on("partnerFound", async (data) => {
     // attach local tracks if not already
     if (localStream) {
       const senders = localPc.getSenders().filter(s=>s.track);
-      if (!senders.length) localStream.getTracks().forEach(t => localPc.addTrack(t, localStream));
+      if (!senders.length) localPc.getTracks().forEach(t => localPc.addTrack(t, localStream));
     }
 
     if (data.initiator) {
@@ -337,12 +386,13 @@ socket.on("partnerFound", async (data) => {
 });
 
 socket.on("offer", async (payload) => {
+// ... (rest of the socket handlers remain the same)
   try {
     await startLocalStream();
     const localPc = createPeerIfNeeded();
     if (localStream) {
       const senders = localPc.getSenders().filter(s=>s.track);
-      if (!senders.length) localStream.getTracks().forEach(t => localPc.addTrack(t, localStream));
+      if (!senders.length) localPc.getTracks().forEach(t => localPc.addTrack(t, localStream));
     }
 
     // Defensive remote description handling
