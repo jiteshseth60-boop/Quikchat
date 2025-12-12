@@ -9,6 +9,9 @@ app.use(cors());
 app.use(express.static(__dirname + "/public"));
 app.get("/google9d84c28f333347f1.html", (req, res) => {
   res.sendFile(__dirname + "/public/google9d84c28f333347f1.html");
+});
+
+// robots.txt route
 app.get("/robots.txt", (req, res) => {
   res.sendFile(__dirname + "/robots.txt");
 });
