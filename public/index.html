@@ -1,33 +1,16 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <!-- FB & Insta Camera Block Detect + Message -->
-<script>
+  <script>
   document.addEventListener("DOMContentLoaded", () => {
     const ua = navigator.userAgent || navigator.vendor || window.opera;
-
+    // Note: The alert logic here is a bit aggressive, but we'll keep the original intent.
     if (ua.includes("FBAN") || ua.includes("FBAV") || ua.includes("Instagram")) {
       alert("⚠ CAMERA & MIC BLOCKED in Facebook/Instagram Browser!\n\nPlease open QuikChat in Chrome for video calling.\n\n— Powered by Jitesh x ChatGPT");
-      window.location.href = "googlechrome://navigate?url=https://quikchat12.onrender.com";
+      // Use standard window.location.href or a better prompt for navigation
+      // window.location.href = "googlechrome://navigate?url=" + encodeURIComponent(window.location.href);
     }
   });
-</script>
-  <!-- Firebase compat scripts for old app.js support -->
-<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
-
-<script>
-  const firebaseConfig = {
-    apiKey: "AIzaSyA48jHU548TouWUWNZF6EW2u2jiNdEhd7k",
-    authDomain: "quikchat-global-31d48.firebaseapp.com",
-    databaseURL: "https://quikchat-global-31d48-default-rtdb.firebaseio.com",
-    projectId: "quikchat-global-31d48",
-    storageBucket: "quikchat-global-31d48.firebasestorage.app",
-    messagingSenderId: "227308003822",
-    appId: "1:227308003822:web:815d471bc922fa65996eff"
-  };
-  firebase.initializeApp(firebaseConfig);
 </script>
   <meta name="google-site-verification" content="Nzb9Ia6A990tUIf7VFduEJRs5p6K15pmtRN3YHj9iI4" />
   <meta charset="utf-8" />
@@ -35,8 +18,7 @@
   <title>Random Video Chat – QuikChat12</title>
 
   <link rel="stylesheet" href="style.css" />
-<!-- SEO + Google Search Meta -->
-  <meta name="description" content="QuikChat - Random Video Chat | Meet new people worldwide instantly! Free online video chat with strangers.">
+<meta name="description" content="QuikChat - Random Video Chat | Meet new people worldwide instantly! Free online video chat with strangers.">
   <meta name="keywords" content="video chat, random chat, live chat, strangers chat, webcam chat, QuikChat, omegle alternative, instant video">
   <meta name="author" content="QuikChat Team">
   <meta name="robots" content="index, follow">
@@ -50,8 +32,7 @@
 <meta name="language" content="en">
 <meta name="distribution" content="global">
 <meta name="theme-color" content="#0066ff">
-      <!-- Google Analytics tag -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-K7NW19YNGZ"></script>
+      <script async src="https://www.googletagmanager.com/gtag/js?id=G-K7NW19YNGZ"></script>
   <script>
     window.dataLayer = window.dataLayer || [];
     function gtag(){dataLayer.push(arguments);}
@@ -66,7 +47,7 @@
       <h1>QuikChat</h1>
       <div id="statusTop">Ready</div>
       <div id="onlineBox" style="font-size:14px; margin-top:4px;">
-  Online: <span id="onlineNow">0</span>
+        Online: <span id="onlineCount">0</span> 
       </div>
       <div class="tools">
 
@@ -183,7 +164,6 @@
 
   </div>
 
-  <!-- SOCKET & SCRIPT -->
   <script src="/socket.io/socket.io.js"></script>
   <script src="script.js"></script>
  <section id="seo-content" style="padding: 25px; margin-top: 30px; background: #f9f9f9; border-top: 1px solid #eee;">
@@ -206,7 +186,7 @@
     <li><strong>Instant Connection Speed:</strong> Minimal wait times for faster matches.</li>
     <li><strong>Zero Registration:</strong> No email or phone number required.</li>
     <li><strong>Advanced Matching Filters:</strong> Choose gender and country for better connections.</li>
-    <li><strong>Global Reach:</strong> Meet people from USA, India, Pakistan, Europe, and many more regions.</li>
+    <li><strong>Private Call:</strong> Spend 100 coins to enter a dedicated, private video session.</li>
   </ul>
 
   <h4 style="color: #555; margin-top: 20px;">Utilizing Filters for Quality Connections</h4>
