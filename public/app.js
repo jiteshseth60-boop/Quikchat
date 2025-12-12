@@ -1,6 +1,6 @@
 /* app.js — Final SafeRandom client (Firebase Realtime DB signalling)
    Replace the firebaseConfig values below.
-   This is the improved, production-ready single-file client.
+   This is the improved, production-ready single-file client with Age Verification.
 */
 /* ==== Fix for Facebook & Instagram in-app browser camera/mic block ==== */
 (function(){
@@ -63,8 +63,12 @@ const nameInput = document.getElementById('nameInput');
 const randNameBtn = document.getElementById('randName');
 
 const genderFilter = document.getElementById('genderFilter');
-const countryFilter = document.getElementById('countryFilter'); // new country select
+const countryFilter = document.getElementById('countryFilter');
 const countVal = document.getElementById('countVal');
+
+// NEW: Assuming a private button exists in index.html
+const privateBtn = document.getElementById('privateBtn');
+
 
 /* sounds (tiny silent wav to avoid blocking) */
 const connectSound = document.getElementById('connectSound');
@@ -84,6 +88,7 @@ let callTimer = null;
 let isMuted = false;
 let videoOff = false;
 let currentCam = 'user';
+let isVerified = false; // NEW: State for age verification
 
 /* keep reference to the rooms listener so we can .off it later */
 let roomsChildAddedListener = null;
@@ -105,6 +110,17 @@ function randomName(){
   const A=["Sunny","Quick","Brave","Silent","Wild","Blue","Lucky","Happy","Sly","Gentle"];
   const B=["Tiger","Fox","Swan","Panda","Wolf","Eagle","Dolphin","Raven","Hawk","Otter"];
   return A[Math.floor(Math.random()*A.length)] + " " + B[Math.floor(Math.random()*B.length)];
+}
+
+// NEW: Helper function to capture a frame from the local video stream
+function captureFrame() {
+  const canvas = document.createElement('canvas');
+  canvas.width = localVideo.videoWidth;
+  canvas.height = localVideo.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(localVideo, 0, 0, canvas.width, canvas.height);
+  // Get image data in Base64 format
+  return canvas.toDataURL('image/jpeg', 0.8);
 }
 
 /* update simple users online (reads waiting + rooms count) */
@@ -232,13 +248,13 @@ function listenRoomEvents(){
 
   // if whole room node removed -> end locally
   db.ref(`rooms/${roomId}`).on('child_removed', snap => {
-    appendChat('Room ended by host.');
+    appendChat('Partner left.');
     endCall(false);
   });
 }
 
 /* matching logic */
-async function findPartner(){
+async function findPartner(wantPrivate = false){ // <-- Modified to accept private flag
   setStatus('Finding partner...');
   findBtn.disabled = true;
   nextBtn.disabled = true;
@@ -250,9 +266,10 @@ async function findPartner(){
   const waitingSnap = await db.ref('waiting').limitToFirst(50).once('value');
   const waiting = waitingSnap.val() || {};
 
-  // pick partner using filters: gender + country
+  // pick partner using filters: gender + country + private/public
   const myGender = (genderFilter && genderFilter.value) ? genderFilter.value : 'any';
   const myCountry = (countryFilter && countryFilter.value) ? countryFilter.value : 'any';
+  const myWantPrivate = wantPrivate; // Use the passed flag
 
   let otherId = null;
   for (const id of Object.keys(waiting)) {
@@ -260,12 +277,24 @@ async function findPartner(){
     const info = (waiting[id].info) ? waiting[id].info : {};
     const theirGender = info.gender || 'any';
     const theirCountry = info.country || 'any';
+    const theirWantPrivate = info.wantPrivate || false; // Check partner's private flag
 
     const genderOK = (myGender === 'any' || theirGender === 'any' || myGender === theirGender);
     const countryOK = (myCountry === 'any' || theirCountry === 'any' || myCountry === theirCountry);
+    // NEW LOGIC: Match only if both want private OR both want public (XOR equivalent)
+    const privateOK = (myWantPrivate === theirWantPrivate); 
 
-    if (genderOK && countryOK) { otherId = id; break; }
+    if (genderOK && countryOK && privateOK) { otherId = id; break; }
   }
+
+  // Define the info to be stored in waiting list
+  const myInfo = { 
+      name: nameInput.value || randomName(), 
+      gender: myGender, 
+      country: myCountry,
+      wantPrivate: myWantPrivate // Store the private flag
+  };
+
 
   if (otherId) {
     // immediate pair: remove other waiting entry and create room
@@ -280,17 +309,17 @@ async function findPartner(){
     } catch(e){
       console.warn('immediate pair error', e);
       // fallback to enqueue
-      await enqueueSelf({ name: nameInput.value || randomName(), gender: myGender, country: myCountry });
+      await enqueueSelf(myInfo); // Pass updated info
     }
   } else {
     // enqueue self and listen for a room where meta.callee == clientId
-    await enqueueSelf({ name: nameInput.value || randomName(), gender: myGender, country: myCountry });
+    await enqueueSelf(myInfo); // Pass updated info
   }
 }
 
 /* helper to enqueue self and start room listener */
 async function enqueueSelf(info){
-  await addToWaiting(info);
+  await addToWaiting(info); // info now contains wantPrivate flag
   setStatus('Waiting for partner...');
   // remove any previous rooms listener to avoid duplicates
   if (roomsChildAddedListener) {
@@ -450,9 +479,74 @@ window.addEventListener('beforeunload', () => {
 /* boot handlers */
 findBtn.onclick = async () => {
   findBtn.disabled=true; nextBtn.disabled=true; endBtn.disabled=false;
-  // set chosen name + filters into waiting info
-  await findPartner();
+  isVerified = false; // Reset verification state for public call
+  // set chosen name + filters into waiting info (Public call: wantPrivate=false)
+  await findPartner(false);
 };
+
+// NEW: Private Button Handler (Triggers Age Verification)
+if (privateBtn) {
+    privateBtn.onclick = async () => {
+        // NOTE: Add your coin check here if needed
+
+        const ok = confirm("Are you 18+ and ready for Age Verification to access Private Matches?");
+        if (!ok) return;
+        
+        // Skip verification if already verified in current session
+        if (isVerified) {
+             alert("Age already verified. Searching Private Partner.");
+             await findPartner(true);
+             return;
+        }
+
+        try {
+            await startLocalStream();
+            setStatus("Verifying age for private access...");
+            findBtn.disabled = true;
+
+            const imageData = captureFrame();
+
+            // 1. Create a unique request ID
+            const verificationId = clientId + '_' + Date.now();
+            
+            // 2. Put the verification request into a dedicated Firebase node
+            await db.ref(`verification_requests/${verificationId}`).set({
+                clientId: clientId,
+                timestamp: Date.now(),
+                status: 'pending',
+                image: imageData 
+            });
+
+            // 3. Listen for the result on the client's own node
+            await db.ref(`verification_status/${clientId}`).on('value', async (snap) => {
+                const status = snap.val();
+                if (!status || status.status === 'pending') return;
+
+                // Stop listening to avoid duplicates
+                db.ref(`verification_status/${clientId}`).off();
+                findBtn.disabled = false;
+
+                if (status.status === 'verified') {
+                    isVerified = true; // Set state to verified
+                    alert("Age Verified! Searching Private Partner.");
+                    await findPartner(true); // Proceed to search private partner
+                } else {
+                    alert("Verification failed. Access denied. (Must be 18+)");
+                    setStatus('Ready — click Find to start');
+                }
+                // Cleanup: remove the temporary status node
+                await db.ref(`verification_status/${clientId}`).remove();
+            });
+
+        } catch (e) {
+            console.warn('Private call start error', e);
+            setStatus('Ready — click Find to start');
+            findBtn.disabled = false;
+        }
+    };
+}
+
+
 randNameBtn.addEventListener('click', ()=>{ nameInput.value = randomName(); });
 
 /* small periodic refresh */
